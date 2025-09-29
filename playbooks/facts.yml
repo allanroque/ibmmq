@@ -1,0 +1,104 @@
+---
+- name: Coleta de visibilidade do IBM MQ
+  hosts: mq_servers
+  gather_facts: yes
+  vars:
+    output_dir: "/tmp"   # diretório onde salvará o JSON no host remoto
+
+  tasks:
+
+    - name: Verificar versão do MQ
+      command: dspmqver
+      become: yes
+      become_user: mqm
+      register: mq_version
+
+    - name: Listar Queue Managers disponíveis
+      command: dspmq
+      become: yes
+      become_user: mqm
+      register: qmgrs_raw
+
+    - name: Extrair nomes dos QMgrs
+      set_fact:
+        qmgrs: "{{ qmgrs_raw.stdout_lines
+                   | map('regex_search', 'QMNAME\\(([^)]+)\\)', '\\1')
+                   | select('string')
+                   | list }}"
+
+    - name: Inicializar estrutura de dados
+      set_fact:
+        mq_health:
+          host: "{{ inventory_hostname }}"
+          collected_at: "{{ ansible_date_time.iso8601 }}"
+          core:
+            os: "{{ ansible_distribution }} {{ ansible_distribution_version }}"
+            kernel: "{{ ansible_kernel }}"
+            arch: "{{ ansible_architecture }}"
+            uptime: "{{ ansible_uptime_seconds }}"
+            vcpus: "{{ ansible_processor_vcpus }}"
+            memory_mb: "{{ ansible_memtotal_mb }}"
+          mq:
+            version: "{{ mq_version.stdout }}"
+            qmgrs: {}
+
+    - name: Coletar informações dos QMgrs
+      block:
+        - name: Listar canais do QMgr
+          shell: "echo 'DISPLAY CHSTATUS(*)' | runmqsc {{ item }}"
+          become: yes
+          become_user: mqm
+          register: mq_channels
+          loop: "{{ qmgrs }}"
+          loop_control:
+            label: "{{ item }}"
+
+        - name: Listar filas do QMgr
+          shell: "echo 'DISPLAY QLOCAL(*) CURDEPTH MAXDEPTH' | runmqsc {{ item }}"
+          become: yes
+          become_user: mqm
+          register: mq_queues
+          loop: "{{ qmgrs }}"
+          loop_control:
+            label: "{{ item }}"
+
+        - name: Listar listeners do QMgr
+          shell: "echo 'DISPLAY LISTENER(*)' | runmqsc {{ item }}"
+          become: yes
+          become_user: mqm
+          register: mq_listeners
+          loop: "{{ qmgrs }}"
+          loop_control:
+            label: "{{ item }}"
+
+      always:
+        - name: Consolidar informações dos QMgrs
+          set_fact:
+            mq_health: >-
+              {{
+                mq_health | combine({
+                  'mq': mq_health.mq | combine({
+                    'qmgrs': mq_health.mq.qmgrs | combine({
+                      item: {
+                        'channels': (mq_channels.results
+                                      | selectattr('item', 'equalto', item)
+                                      | map(attribute='stdout_lines') | list | first | default([])),
+                        'queues': (mq_queues.results
+                                      | selectattr('item', 'equalto', item)
+                                      | map(attribute='stdout_lines') | list | first | default([])),
+                        'listeners': (mq_listeners.results
+                                      | selectattr('item', 'equalto', item)
+                                      | map(attribute='stdout_lines') | list | first | default([]))
+                      }
+                    })
+                  })
+                })
+              }}
+          loop: "{{ qmgrs }}"
+          loop_control:
+            label: "{{ item }}"
+
+    - name: Salvar JSON consolidado no host remoto
+      copy:
+        dest: "{{ output_dir }}/mq_health_{{ inventory_hostname }}.json"
+        content: "{{ mq_health | to_nice_json }}"
