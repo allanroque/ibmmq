@@ -6,16 +6,10 @@
 
     - name: Versão do MQ
       command: dspmqver
-      become: true
-      become_user: mqm
-      become_method: sudo   # ou "su", conforme seu ambiente
       register: mq_version
 
     - name: Queue Managers disponíveis
       command: dspmq
-      become: true
-      become_user: mqm
-      become_method: sudo
       register: qmgrs_raw
 
     - name: Extrair nomes dos QMgrs
@@ -27,25 +21,16 @@
 
     - name: Listar canais
       shell: "echo 'DISPLAY CHSTATUS(*)' | runmqsc {{ item }}"
-      become: true
-      become_user: mqm
-      become_method: sudo
       loop: "{{ qmgrs }}"
       register: mq_channels
 
     - name: Listar filas
       shell: "echo 'DISPLAY QLOCAL(*) CURDEPTH MAXDEPTH' | runmqsc {{ item }}"
-      become: true
-      become_user: mqm
-      become_method: sudo
       loop: "{{ qmgrs }}"
       register: mq_queues
 
     - name: Listar listeners
       shell: "echo 'DISPLAY LISTENER(*)' | runmqsc {{ item }}"
-      become: true
-      become_user: mqm
-      become_method: sudo
       loop: "{{ qmgrs }}"
       register: mq_listeners
 
