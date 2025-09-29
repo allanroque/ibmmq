@@ -1,6 +1,6 @@
 ---
 - name: Validação de acessibilidade
-  hosts: all
+  hosts: mq01
   gather_facts: no
 
   tasks:
