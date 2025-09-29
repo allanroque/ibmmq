@@ -71,3 +71,9 @@
           channels: "{{ mq_channels.results | map(attribute='stdout_lines') | list if qmgrs_running|length > 0 else [] }}"
           queues: "{{ mq_queues.results | map(attribute='stdout_lines') | list if qmgrs_running|length > 0 else [] }}"
           listeners: "{{ mq_listeners.results | map(attribute='stdout_lines') | list if qmgrs_running|length > 0 else [] }}"
+
+    - name: Salvar resultado em arquivo JSON
+      copy:
+        content: "{{ mq_health | to_nice_json }}"
+        dest: "/tmp/mq_health_{{ inventory_hostname }}.json"
+      delegate_to: localhost
