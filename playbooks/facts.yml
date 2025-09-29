@@ -76,4 +76,3 @@
       copy:
         content: "{{ mq_health | to_nice_json }}"
         dest: "/tmp/mq_health_{{ inventory_hostname }}.json"
-      delegate_to: localhost
