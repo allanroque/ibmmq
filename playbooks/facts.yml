@@ -81,3 +81,15 @@
       copy:
         content: "{{ mq_health | to_nice_json }}"
         dest: "/tmp/mq_health_{{ inventory_hostname }}.json"
+        
+    - name: Registrar resultado do MQ no host do inventário
+      ansible.controller.host:
+        name: "{{ inventory_hostname }}"
+        inventory: "INV-MQ"
+        state: present
+        variables: >-
+          {{
+            hostvars[inventory_hostname].ansible_facts |
+            combine({'ansible_host': hostvars[inventory_hostname].ansible_host}) |
+            combine({'mq_health': mq_health})
+          }}
