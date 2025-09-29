@@ -2,17 +2,19 @@
 - name: Coleta de visibilidade simples do IBM MQ
   hosts: mq_servers
   gather_facts: yes
+  vars:
+    ansible_become: true
+    ansible_become_user: mqm
+    ansible_become_method: sudo
   tasks:
 
     - name: Versão do MQ
       command: dspmqver
       register: mq_version
-      become_user: mqm
 
     - name: Queue Managers disponíveis
       command: dspmq
       register: qmgrs_raw
-      become_user: mqm
 
     - name: Extrair nomes dos QMgrs
       set_fact:
@@ -25,19 +27,16 @@
       shell: "echo 'DISPLAY CHSTATUS(*)' | runmqsc {{ item }}"
       loop: "{{ qmgrs }}"
       register: mq_channels
-      become_user: mqm
 
     - name: Listar filas
       shell: "echo 'DISPLAY QLOCAL(*) CURDEPTH MAXDEPTH' | runmqsc {{ item }}"
       loop: "{{ qmgrs }}"
       register: mq_queues
-      become_user: mqm
 
     - name: Listar listeners
       shell: "echo 'DISPLAY LISTENER(*)' | runmqsc {{ item }}"
       loop: "{{ qmgrs }}"
       register: mq_listeners
-      become_user: mqm
 
     - name: Consolidar resultado
       set_fact:
