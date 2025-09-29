@@ -1,0 +1,10 @@
+---
+- name: Coleta de visibilidade IBM MQ
+  hosts: mq_servers
+  gather_facts: yes
+  tasks:
+
+    - name: Mostrar resultado na tela
+      debug:
+        var: mq_health
+
