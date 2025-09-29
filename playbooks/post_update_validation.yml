@@ -1,0 +1,165 @@
+---
+- name: "Validações Pós-Atualização - Etapa 8"
+  hosts: mq_servers
+  become: yes
+  vars_files:
+    - vars/vars.yml
+  
+  tasks:
+    - name: "Verificar versão do MQ após atualização"
+      command: dspmqver
+      register: post_update_version
+
+    - name: "Verificar status dos Queue Managers"
+      shell: dspmq
+      register: post_update_qm_status
+
+    - name: "Verificar se todos os QMs estão rodando"
+      shell: |
+        dspmq | grep -c "STATUS(Running)"
+      register: running_qms_count
+
+    - name: "Verificar conectividade dos QMs"
+      shell: |
+        for qm in $(dspmq | grep -o 'QMNAME([^)]*)' | sed 's/QMNAME(\(.*\))/\1/'); do
+          echo "DISPLAY QMGR" | runmqsc $qm 2>/dev/null | head -5
+        done
+      register: qm_connectivity
+      ignore_errors: true
+
+    - name: "Verificar canais após atualização"
+      shell: |
+        for qm in $(dspmq | grep -o 'QMNAME([^)]*)' | sed 's/QMNAME(\(.*\))/\1/'); do
+          echo "DISPLAY CHSTATUS(*)" | runmqsc $qm 2>/dev/null | grep -c "CHANNEL(" || echo "0"
+        done
+      register: post_update_channels
+      ignore_errors: true
+
+    - name: "Verificar filas após atualização"
+      shell: |
+        for qm in $(dspmq | grep -o 'QMNAME([^)]*)' | sed 's/QMNAME(\(.*\))/\1/'); do
+          echo "DISPLAY QLOCAL(*)" | runmqsc $qm 2>/dev/null | grep -c "QUEUE(" || echo "0"
+        done
+      register: post_update_queues
+      ignore_errors: true
+
+    - name: "Verificar listeners após atualização"
+      shell: |
+        for qm in $(dspmq | grep -o 'QMNAME([^)]*)' | sed 's/QMNAME(\(.*\))/\1/'); do
+          echo "DISPLAY LISTENER(*)" | runmqsc $qm 2>/dev/null | grep -c "LISTENER(" || echo "0"
+        done
+      register: post_update_listeners
+      ignore_errors: true
+
+    - name: "Verificar logs de erro"
+      shell: |
+        find /var/mqm -name "*.log" -mtime -1 -exec grep -l "ERROR\|FATAL\|SEVERE" {} \; 2>/dev/null | wc -l
+      register: error_logs_count
+      ignore_errors: true
+
+    - name: "Verificar integridade dos dados"
+      shell: |
+        for qm in $(dspmq | grep -o 'QMNAME([^)]*)' | sed 's/QMNAME(\(.*\))/\1/'); do
+          echo "DISPLAY QMSTATUS" | runmqsc $qm 2>/dev/null | grep -i "status" || echo "Status não disponível"
+        done
+      register: qm_integrity
+      ignore_errors: true
+
+    - name: "Verificar performance básica"
+      shell: |
+        for qm in $(dspmq | grep -o 'QMNAME([^)]*)' | sed 's/QMNAME(\(.*\))/\1/'); do
+          echo "DISPLAY QMSTATUS" | runmqsc $qm 2>/dev/null | grep -E "(CPU|MEMORY|DISK)" || echo "Métricas não disponíveis"
+        done
+      register: performance_metrics
+      ignore_errors: true
+
+    - name: "Verificar se há mensagens em filas"
+      shell: |
+        for qm in $(dspmq | grep -o 'QMNAME([^)]*)' | sed 's/QMNAME(\(.*\))/\1/'); do
+          echo "DISPLAY QLOCAL(*) CURDEPTH" | runmqsc $qm 2>/dev/null | grep -E "CURDEPTH\([1-9]" | wc -l || echo "0"
+        done
+      register: messages_in_queues
+      ignore_errors: true
+
+    - name: "Verificar processos MQ"
+      shell: ps aux | grep -E "(amqzxma0|amqzxma1|amqzxma2|amqzxma3|amqzxma4)" | grep -v grep
+      register: mq_processes_post
+      ignore_errors: true
+
+    - name: "Verificar uso de recursos"
+      shell: |
+        echo "CPU: $(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1)"
+        echo "Memory: $(free | grep Mem | awk '{printf "%.1f%%", $3/$2 * 100.0}')"
+        echo "Disk: $(df -h /var/mqm | tail -1 | awk '{print $5}')"
+      register: resource_usage
+      ignore_errors: true
+
+    - name: "Executar teste de conectividade"
+      shell: |
+        for qm in $(dspmq | grep -o 'QMNAME([^)]*)' | sed 's/QMNAME(\(.*\))/\1/'); do
+          echo "PING QMGR" | runmqsc $qm 2>/dev/null | grep -c "AMQ" || echo "0"
+        done
+      register: connectivity_test
+      ignore_errors: true
+
+    - name: "Criar relatório de validação pós-atualização"
+      copy:
+        content: |
+          # Relatório de Validação Pós-Atualização
+          Data: {{ ansible_date_time.iso8601 }}
+          Host: {{ inventory_hostname }}
+          Versão Update: {{ updatemq_version }}
+          
+          ## Versão do MQ:
+          {{ post_update_version.stdout_lines | join('\n') if post_update_version.stdout_lines is defined else 'N/A' }}
+          
+          ## Status dos Queue Managers:
+          {{ post_update_qm_status.stdout if post_update_qm_status.stdout is defined else 'N/A' }}
+          - QMs Rodando: {{ running_qms_count.stdout if running_qms_count.stdout is defined else '0' }}
+          
+          ## Conectividade:
+          - Teste de Conectividade: {{ connectivity_test.stdout_lines | sum if connectivity_test.stdout_lines is defined else '0' }} sucessos
+          - Canais: {{ post_update_channels.stdout_lines | sum if post_update_channels.stdout_lines is defined else '0' }}
+          - Filas: {{ post_update_queues.stdout_lines | sum if post_update_queues.stdout_lines is defined else '0' }}
+          - Listeners: {{ post_update_listeners.stdout_lines | sum if post_update_listeners.stdout_lines is defined else '0' }}
+          
+          ## Integridade:
+          - Logs de Erro: {{ error_logs_count.stdout if error_logs_count.stdout is defined else '0' }}
+          - Mensagens em Filas: {{ messages_in_queues.stdout_lines | sum if messages_in_queues.stdout_lines is defined else '0' }}
+          - Processos MQ: {{ mq_processes_post.stdout_lines | length if mq_processes_post.stdout_lines is defined else '0' }}
+          
+          ## Recursos do Sistema:
+          {{ resource_usage.stdout if resource_usage.stdout is defined else 'N/A' }}
+          
+          ## Status da Validação:
+          - QMs Funcionando: {{ 'OK' if running_qms_count.stdout | int > 0 else 'FALHA' }}
+          - Conectividade: {{ 'OK' if connectivity_test.stdout_lines | sum > 0 else 'FALHA' }}
+          - Logs de Erro: {{ 'OK' if error_logs_count.stdout | int == 0 else 'ATENÇÃO' }}
+          - Processos: {{ 'OK' if mq_processes_post.stdout_lines | length > 0 else 'FALHA' }}
+          
+          ## Status Geral:
+          - Validação: {{ 'SUCESSO' if running_qms_count.stdout | int > 0 and connectivity_test.stdout_lines | sum > 0 else 'FALHA' }}
+        dest: "/var/log/ansible/updatemq/updatemq_{{ updatemq_version }}/post_validation_{{ ansible_date_time.iso8601_basic }}.txt"
+        owner: mqm
+        group: mqm
+        mode: '0644'
+
+    - name: "Mostrar resumo das validações pós-atualização"
+      debug:
+        msg: |
+          === VALIDAÇÕES PÓS-ATUALIZAÇÃO ===
+          Host: {{ inventory_hostname }}
+          Versão: {{ post_update_version.stdout_lines[0] if post_update_version.stdout_lines is defined else 'N/A' }}
+          QMs Rodando: {{ running_qms_count.stdout if running_qms_count.stdout is defined else '0' }}
+          Conectividade: {{ connectivity_test.stdout_lines | sum if connectivity_test.stdout_lines is defined else '0' }} sucessos
+          Logs de Erro: {{ error_logs_count.stdout if error_logs_count.stdout is defined else '0' }}
+          Status: {{ 'SUCESSO' if running_qms_count.stdout | int > 0 and connectivity_test.stdout_lines | sum > 0 else 'FALHA' }}
+
+    - name: "Registrar resultado das validações pós-atualização"
+      set_fact:
+        post_validation_result:
+          version: "{{ post_update_version.stdout_lines[0] if post_update_version.stdout_lines is defined else 'N/A' }}"
+          qms_running: "{{ running_qms_count.stdout | int if running_qms_count.stdout is defined else 0 }}"
+          connectivity_success: "{{ connectivity_test.stdout_lines | sum if connectivity_test.stdout_lines is defined else 0 }}"
+          error_logs: "{{ error_logs_count.stdout | int if error_logs_count.stdout is defined else 0 }}"
+          status: "{{ 'success' if running_qms_count.stdout | int > 0 and connectivity_test.stdout_lines | sum > 0 else 'failed' }}"

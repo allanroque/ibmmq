@@ -1,0 +1,166 @@
+---
+- name: "Atualização do IBM MQ - Etapa 7"
+  hosts: mq_servers
+  become: yes
+  vars_files:
+    - vars/vars.yml
+  
+  tasks:
+    - name: "Parar todos os Queue Managers"
+      shell: |
+        for qm in $(dspmq | grep -o 'QMNAME([^)]*)' | sed 's/QMNAME(\(.*\))/\1/'); do
+          if [ "$(dspmq -m $qm | grep -o 'STATUS([^)]*)' | sed 's/STATUS(\(.*\))/\1/')" = "Running" ]; then
+            echo "Parando Queue Manager: $qm"
+            endmqm $qm
+            sleep 5
+          fi
+        done
+      register: stop_qm_result
+      ignore_errors: true
+
+    - name: "Aguardar parada completa dos QMs"
+      wait_for:
+        timeout: 60
+      when: stop_qm_result is defined
+
+    - name: "Verificar se todos os QMs foram parados"
+      shell: dspmq
+      register: qm_status_after_stop
+
+    - name: "Fazer backup da instalação atual"
+      shell: |
+        cp -r /opt/mqm /opt/mqm_backup_{{ ansible_date_time.iso8601_basic }}
+        tar -czf /var/backup/mq/mq_installation_backup_{{ ansible_date_time.iso8601_basic }}.tar.gz /opt/mqm_backup_{{ ansible_date_time.iso8601_basic }}
+      register: installation_backup
+      ignore_errors: true
+
+    - name: "Verificar se há pacotes MQ instalados"
+      shell: rpm -qa | grep -i mq
+      register: installed_mq_packages
+
+    - name: "Fazer download do novo pacote MQ (se necessário)"
+      get_url:
+        url: "{{ mq_package_url | default('') }}"
+        dest: "/tmp/mq_update_{{ updatemq_version }}.rpm"
+        mode: '0644'
+      when: mq_package_url is defined
+      register: download_package
+      ignore_errors: true
+
+    - name: "Instalar atualização do MQ"
+      yum:
+        name: "{{ mq_package_name | default('ibmmq-server') }}"
+        state: latest
+        update_cache: yes
+      register: mq_update_result
+      ignore_errors: true
+
+    - name: "Verificar instalação da atualização"
+      command: dspmqver
+      register: new_mq_version
+      ignore_errors: true
+
+    - name: "Aplicar configurações pós-atualização"
+      shell: |
+        # Recriar links simbólicos se necessário
+        if [ ! -L /usr/bin/runmqsc ]; then
+          ln -sf /opt/mqm/bin/runmqsc /usr/bin/runmqsc
+        fi
+        if [ ! -L /usr/bin/dspmq ]; then
+          ln -sf /opt/mqm/bin/dspmq /usr/bin/dspmq
+        fi
+      register: post_update_config
+      ignore_errors: true
+
+    - name: "Verificar integridade da instalação"
+      shell: |
+        /opt/mqm/bin/dspmqver
+        /opt/mqm/bin/dspmq
+      register: installation_check
+      ignore_errors: true
+
+    - name: "Iniciar Queue Managers"
+      shell: |
+        for qm in $(dspmq | grep -o 'QMNAME([^)]*)' | sed 's/QMNAME(\(.*\))/\1/'); do
+          if [ "$(dspmq -m $qm | grep -o 'STATUS([^)]*)' | sed 's/STATUS(\(.*\))/\1/')" != "Running" ]; then
+            echo "Iniciando Queue Manager: $qm"
+            strmqm $qm
+            sleep 10
+          fi
+        done
+      register: start_qm_result
+      ignore_errors: true
+
+    - name: "Aguardar inicialização dos QMs"
+      wait_for:
+        timeout: 120
+      when: start_qm_result is defined
+
+    - name: "Verificar status final dos QMs"
+      shell: dspmq
+      register: final_qm_status
+
+    - name: "Executar comandos de pós-atualização"
+      shell: |
+        for qm in $(dspmq | grep -o 'QMNAME([^)]*)' | sed 's/QMNAME(\(.*\))/\1/'); do
+          if [ "$(dspmq -m $qm | grep -o 'STATUS([^)]*)' | sed 's/STATUS(\(.*\))/\1/')" = "Running" ]; then
+            echo "Executando comandos pós-atualização no QM: $qm"
+            echo "ALTER QMGR DEADQ(SYSTEM.DEAD.LETTER.QUEUE)" | runmqsc $qm
+            echo "ALTER QMGR MAXMSGL(104857600)" | runmqsc $qm
+          fi
+        done
+      register: post_update_commands
+      ignore_errors: true
+
+    - name: "Criar relatório da atualização"
+      copy:
+        content: |
+          # Relatório de Atualização IBM MQ
+          Data: {{ ansible_date_time.iso8601 }}
+          Host: {{ inventory_hostname }}
+          Versão Update: {{ updatemq_version }}
+          
+          ## Status da Atualização:
+          - Parada dos QMs: {{ 'SUCESSO' if stop_qm_result.rc == 0 else 'FALHA' }}
+          - Backup da Instalação: {{ 'SUCESSO' if installation_backup.rc == 0 else 'FALHA' }}
+          - Instalação da Atualização: {{ 'SUCESSO' if mq_update_result.rc == 0 else 'FALHA' }}
+          - Inicialização dos QMs: {{ 'SUCESSO' if start_qm_result.rc == 0 else 'FALHA' }}
+          
+          ## Versões:
+          - Versão Anterior: {{ mq_health.version.Version | default('N/A') }}
+          - Versão Nova: {{ new_mq_version.stdout_lines[0] if new_mq_version.stdout_lines is defined else 'N/A' }}
+          
+          ## Pacotes Instalados:
+          {{ installed_mq_packages.stdout_lines | join('\n') if installed_mq_packages.stdout_lines is defined else 'N/A' }}
+          
+          ## Status Final dos QMs:
+          {{ final_qm_status.stdout if final_qm_status.stdout is defined else 'N/A' }}
+          
+          ## Comandos Pós-Atualização:
+          {{ post_update_commands.stdout if post_update_commands.stdout is defined else 'N/A' }}
+          
+          ## Status Geral:
+          - Atualização: {{ 'SUCESSO' if mq_update_result.rc == 0 and start_qm_result.rc == 0 else 'FALHA' }}
+        dest: "/var/log/ansible/updatemq/updatemq_{{ updatemq_version }}/update_report_{{ ansible_date_time.iso8601_basic }}.txt"
+        owner: mqm
+        group: mqm
+        mode: '0644'
+
+    - name: "Mostrar resultado da atualização"
+      debug:
+        msg: |
+          === RESULTADO DA ATUALIZAÇÃO ===
+          Host: {{ inventory_hostname }}
+          Status: {{ 'SUCESSO' if mq_update_result.rc == 0 and start_qm_result.rc == 0 else 'FALHA' }}
+          Versão Anterior: {{ mq_health.version.Version | default('N/A') }}
+          Versão Nova: {{ new_mq_version.stdout_lines[0] if new_mq_version.stdout_lines is defined else 'N/A' }}
+          QMs Ativos: {{ final_qm_status.stdout_lines | select('search', 'Running') | list | length if final_qm_status.stdout_lines is defined else 0 }}
+
+    - name: "Registrar resultado da atualização"
+      set_fact:
+        update_result:
+          status: "{{ 'success' if mq_update_result.rc == 0 and start_qm_result.rc == 0 else 'failed' }}"
+          old_version: "{{ mq_health.version.Version | default('N/A') }}"
+          new_version: "{{ new_mq_version.stdout_lines[0] if new_mq_version.stdout_lines is defined else 'N/A' }}"
+          qms_running: "{{ final_qm_status.stdout_lines | select('search', 'Running') | list | length if final_qm_status.stdout_lines is defined else 0 }}"
+          timestamp: "{{ ansible_date_time.iso8601 }}"

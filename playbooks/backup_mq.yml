@@ -1,0 +1,122 @@
+---
+- name: "Backup Completo do IBM MQ - Etapa 4"
+  hosts: mq_servers
+  become: yes
+  vars_files:
+    - vars/vars.yml
+  
+  tasks:
+    - name: "Criar diretório de backup"
+      file:
+        path: "/var/backup/mq/updatemq_{{ updatemq_version }}/{{ ansible_date_time.date }}"
+        state: directory
+        owner: mqm
+        group: mqm
+        mode: '0755'
+      register: backup_dir
+
+    - name: "Definir timestamp do backup"
+      set_fact:
+        backup_timestamp: "{{ ansible_date_time.iso8601_basic }}"
+
+    - name: "Backup das configurações do MQ"
+      shell: |
+        find /var/mqm -name "*.mqsc" -o -name "*.conf" -o -name "*.ini" | \
+        tar -czf {{ backup_dir.path }}/mq_configs_{{ backup_timestamp }}.tar.gz -T -
+      register: backup_configs
+      ignore_errors: true
+
+    - name: "Backup dos dados do MQ"
+      shell: |
+        tar -czf {{ backup_dir.path }}/mq_data_{{ backup_timestamp }}.tar.gz \
+        /var/mqm/qmgrs/*/qm.ini \
+        /var/mqm/qmgrs/*/*.log \
+        /var/mqm/qmgrs/*/*.fdc \
+        /var/mqm/qmgrs/*/amq* \
+        /var/mqm/qmgrs/*/*.DAT
+      register: backup_data
+      ignore_errors: true
+
+    - name: "Backup dos logs do sistema"
+      shell: |
+        tar -czf {{ backup_dir.path }}/system_logs_{{ backup_timestamp }}.tar.gz \
+        /var/log/messages* \
+        /var/log/secure* \
+        /var/log/audit/*
+      register: backup_logs
+      ignore_errors: true
+
+    - name: "Backup das definições dos Queue Managers"
+      shell: |
+        for qm in $(dspmq | grep -o 'QMNAME([^)]*)' | sed 's/QMNAME(\(.*\))/\1/'); do
+          echo "DIS QMGR ALL" | runmqsc $qm > {{ backup_dir.path }}/qm_${qm}_definition_{{ backup_timestamp }}.txt
+        done
+      register: backup_qm_definitions
+      ignore_errors: true
+
+    - name: "Backup das definições de canais"
+      shell: |
+        for qm in $(dspmq | grep -o 'QMNAME([^)]*)' | sed 's/QMNAME(\(.*\))/\1/'); do
+          echo "DIS CHANNEL(*)" | runmqsc $qm > {{ backup_dir.path }}/channels_${qm}_{{ backup_timestamp }}.txt
+        done
+      register: backup_channels
+      ignore_errors: true
+
+    - name: "Backup das definições de filas"
+      shell: |
+        for qm in $(dspmq | grep -o 'QMNAME([^)]*)' | sed 's/QMNAME(\(.*\))/\1/'); do
+          echo "DIS QUEUE(*)" | runmqsc $qm > {{ backup_dir.path }}/queues_${qm}_{{ backup_timestamp }}.txt
+        done
+      register: backup_queues
+      ignore_errors: true
+
+    - name: "Backup das definições de listeners"
+      shell: |
+        for qm in $(dspmq | grep -o 'QMNAME([^)]*)' | sed 's/QMNAME(\(.*\))/\1/'); do
+          echo "DIS LISTENER(*)" | runmqsc $qm > {{ backup_dir.path }}/listeners_${qm}_{{ backup_timestamp }}.txt
+        done
+      register: backup_listeners
+      ignore_errors: true
+
+    - name: "Criar inventário do backup"
+      copy:
+        content: |
+          # Inventário do Backup IBM MQ
+          Data: {{ ansible_date_time.iso8601 }}
+          Host: {{ inventory_hostname }}
+          Versão MQ: {{ mq_health.version.Version | default('N/A') }}
+          Queue Managers: {{ mq_health.qmgrs_running | default([]) | join(', ') }}
+          
+          ## Arquivos de Backup:
+          - Configurações: mq_configs_{{ backup_timestamp }}.tar.gz
+          - Dados: mq_data_{{ backup_timestamp }}.tar.gz
+          - Logs do Sistema: system_logs_{{ backup_timestamp }}.tar.gz
+          - Definições QM: qm_*_definition_{{ backup_timestamp }}.txt
+          - Canais: channels_*_{{ backup_timestamp }}.txt
+          - Filas: queues_*_{{ backup_timestamp }}.txt
+          - Listeners: listeners_*_{{ backup_timestamp }}.txt
+        dest: "{{ backup_dir.path }}/backup_inventory_{{ backup_timestamp }}.txt"
+        owner: mqm
+        group: mqm
+        mode: '0644'
+
+    - name: "Verificar tamanho do backup"
+      stat:
+        path: "{{ backup_dir.path }}"
+      register: backup_size
+
+    - name: "Mostrar informações do backup"
+      debug:
+        msg: |
+          Backup concluído com sucesso!
+          Diretório: {{ backup_dir.path }}
+          Tamanho: {{ (backup_size.stat.size / 1024 / 1024) | round(2) }} MB
+          Timestamp: {{ backup_timestamp }}
+
+    - name: "Registrar informações do backup"
+      set_fact:
+        backup_info:
+          path: "{{ backup_dir.path }}"
+          timestamp: "{{ backup_timestamp }}"
+          size_mb: "{{ (backup_size.stat.size / 1024 / 1024) | round(2) }}"
+          status: "success"

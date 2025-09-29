@@ -1,0 +1,179 @@
+---
+- name: "Notificações de Conclusão - Etapa 10"
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/vars.yml
+  
+  tasks:
+    - name: "Coletar resultados de todos os hosts"
+      set_fact:
+        all_results: "{{ hostvars | dict2items | selectattr('value.mq_health', 'defined') | map(attribute='value') | list }}"
+
+    - name: "Determinar status geral da atualização"
+      set_fact:
+        overall_status: "{{ 'SUCCESS' if all_results | selectattr('update_result.status', 'equalto', 'success') | list | length == all_results | length else 'FAILED' }}"
+
+    - name: "Criar relatório consolidado"
+      copy:
+        content: |
+          # RELATÓRIO CONSOLIDADO DE ATUALIZAÇÃO IBM MQ
+          Data: {{ ansible_date_time.iso8601 }}
+          Versão Update: {{ updatemq_version }}
+          Status Geral: {{ overall_status }}
+          
+          ## RESUMO POR HOST:
+          {% for host in all_results %}
+          ### Host: {{ host.inventory_hostname }}
+          - IP: {{ host.ansible_host }}
+          - Versão Anterior: {{ host.mq_health.version.Version | default('N/A') }}
+          - QMs Rodando: {{ host.mq_health.qmgrs_running | length if host.mq_health.qmgrs_running is defined else 0 }}
+          - Status da Atualização: {{ host.update_result.status | default('N/A') if host.update_result is defined else 'N/A' }}
+          - Versão Nova: {{ host.update_result.new_version | default('N/A') if host.update_result is defined else 'N/A' }}
+          - QMs Ativos Pós-Atualização: {{ host.update_result.qms_running | default('N/A') if host.update_result is defined else 'N/A' }}
+          - Validação Pós-Atualização: {{ host.post_validation_result.status | default('N/A') if host.post_validation_result is defined else 'N/A' }}
+          - Testes Funcionais: {{ host.functional_tests_result.status | default('N/A') if host.functional_tests_result is defined else 'N/A' }}
+          {% if host.functional_tests_result is defined %}
+          - Testes Executados: {{ host.functional_tests_result.total_tests | default('N/A') }}
+          - Sucessos: {{ host.functional_tests_result.successful_tests | default('N/A') }}
+          - Falhas: {{ host.functional_tests_result.failed_tests | default('N/A') }}
+          {% endif %}
+          
+          {% endfor %}
+          
+          ## ESTATÍSTICAS GERAIS:
+          - Total de Hosts: {{ all_results | length }}
+          - Atualizações Bem-sucedidas: {{ all_results | selectattr('update_result.status', 'equalto', 'success') | list | length }}
+          - Atualizações com Falha: {{ all_results | selectattr('update_result.status', 'defined') | selectattr('update_result.status', 'notequalto', 'success') | list | length }}
+          - Hosts com Validação OK: {{ all_results | selectattr('post_validation_result.status', 'equalto', 'success') | list | length }}
+          - Hosts com Testes OK: {{ all_results | selectattr('functional_tests_result.status', 'equalto', 'success') | list | length }}
+          
+          ## PRÓXIMOS PASSOS:
+          {% if overall_status == 'SUCCESS' %}
+          - ✅ Atualização concluída com sucesso
+          - ✅ Todos os hosts estão funcionando
+          - ✅ Validações aprovadas
+          - ✅ Testes funcionais passaram
+          - 📋 Monitorar logs por 24h
+          - 📋 Verificar performance
+          {% else %}
+          - ❌ Atualização com falhas detectadas
+          - 🔍 Revisar logs de erro
+          - 🔍 Verificar hosts com falha
+          - 🔄 Considerar rollback se necessário
+          - 📞 Contatar equipe de suporte
+          {% endif %}
+        dest: "/tmp/mq_update_consolidated_report_{{ updatemq_version }}_{{ ansible_date_time.iso8601_basic }}.txt"
+        mode: '0644'
+
+    - name: "Enviar notificação por email (se configurado)"
+      mail:
+        to: "{{ notification_email | default('admin@company.com') }}"
+        subject: "IBM MQ Update {{ updatemq_version }} - {{ overall_status }}"
+        body: |
+          Atualização do IBM MQ concluída.
+          
+          Status: {{ overall_status }}
+          Hosts: {{ all_results | length }}
+          Sucessos: {{ all_results | selectattr('update_result.status', 'equalto', 'success') | list | length }}
+          Falhas: {{ all_results | selectattr('update_result.status', 'defined') | selectattr('update_result.status', 'notequalto', 'success') | list | length }}
+          
+          Relatório completo em: /tmp/mq_update_consolidated_report_{{ updatemq_version }}_{{ ansible_date_time.iso8601_basic }}.txt
+        smtp_server: "{{ smtp_server | default('localhost') }}"
+        smtp_port: "{{ smtp_port | default(25) }}"
+      when: notification_email is defined
+      ignore_errors: true
+
+    - name: "Enviar notificação para Slack (se configurado)"
+      uri:
+        url: "{{ slack_webhook_url | default('') }}"
+        method: POST
+        body_format: json
+        body:
+          text: |
+            🚀 *IBM MQ Update {{ updatemq_version }} - {{ overall_status }}*
+            
+            📊 *Resumo:*
+            • Hosts: {{ all_results | length }}
+            • Sucessos: {{ all_results | selectattr('update_result.status', 'equalto', 'success') | list | length }}
+            • Falhas: {{ all_results | selectattr('update_result.status', 'defined') | selectattr('update_result.status', 'notequalto', 'success') | list | length }}
+            
+            {% if overall_status == 'SUCCESS' %}
+            ✅ Atualização concluída com sucesso!
+            {% else %}
+            ❌ Atualização com falhas - verificar logs
+            {% endif %}
+            
+            Data: {{ ansible_date_time.iso8601 }}
+        status_code: 200
+      when: slack_webhook_url is defined
+      ignore_errors: true
+
+    - name: "Criar ticket de acompanhamento (se configurado)"
+      uri:
+        url: "{{ ticketing_system_url | default('') }}"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ ticketing_system_token | default('') }}"
+        body_format: json
+        body:
+          title: "IBM MQ Update {{ updatemq_version }} - {{ overall_status }}"
+          description: |
+            Atualização do IBM MQ versão {{ updatemq_version }}.
+            
+            Status: {{ overall_status }}
+            Hosts processados: {{ all_results | length }}
+            Sucessos: {{ all_results | selectattr('update_result.status', 'equalto', 'success') | list | length }}
+            Falhas: {{ all_results | selectattr('update_result.status', 'defined') | selectattr('update_result.status', 'notequalto', 'success') | list | length }}
+            
+            Relatório: /tmp/mq_update_consolidated_report_{{ updatemq_version }}_{{ ansible_date_time.iso8601_basic }}.txt
+          priority: "{{ 'high' if overall_status == 'FAILED' else 'medium' }}"
+          status: "{{ 'open' if overall_status == 'FAILED' else 'closed' }}"
+        status_code: 200
+      when: ticketing_system_url is defined and ticketing_system_token is defined
+      ignore_errors: true
+
+    - name: "Registrar no log do AAP Controller"
+      ansible.controller.job_template:
+        name: "MQ Update Log - {{ updatemq_version }}"
+        job_type: "run"
+        inventory: "{{ ac_inv_all_hosts }}"
+        playbook: "log_update_result.yml"
+        extra_vars:
+          update_version: "{{ updatemq_version }}"
+          overall_status: "{{ overall_status }}"
+          results: "{{ all_results }}"
+      when: ac_inv_all_hosts is defined
+      ignore_errors: true
+
+    - name: "Mostrar resumo final"
+      debug:
+        msg: |
+          ========================================
+          RELATÓRIO FINAL DE ATUALIZAÇÃO IBM MQ
+          ========================================
+          Data: {{ ansible_date_time.iso8601 }}
+          Versão: {{ updatemq_version }}
+          Status Geral: {{ overall_status }}
+          
+          Hosts Processados: {{ all_results | length }}
+          Sucessos: {{ all_results | selectattr('update_result.status', 'equalto', 'success') | list | length }}
+          Falhas: {{ all_results | selectattr('update_result.status', 'defined') | selectattr('update_result.status', 'notequalto', 'success') | list | length }}
+          
+          {% if overall_status == 'SUCCESS' %}
+          ✅ ATUALIZAÇÃO CONCLUÍDA COM SUCESSO!
+          {% else %}
+          ❌ ATUALIZAÇÃO COM FALHAS - VERIFICAR LOGS
+          {% endif %}
+          
+          Relatório completo: /tmp/mq_update_consolidated_report_{{ updatemq_version }}_{{ ansible_date_time.iso8601_basic }}.txt
+
+    - name: "Registrar resultado final"
+      set_fact:
+        final_update_result:
+          overall_status: "{{ overall_status }}"
+          total_hosts: "{{ all_results | length }}"
+          successful_updates: "{{ all_results | selectattr('update_result.status', 'equalto', 'success') | list | length }}"
+          failed_updates: "{{ all_results | selectattr('update_result.status', 'defined') | selectattr('update_result.status', 'notequalto', 'success') | list | length }}"
+          report_file: "/tmp/mq_update_consolidated_report_{{ updatemq_version }}_{{ ansible_date_time.iso8601_basic }}.txt"
+          timestamp: "{{ ansible_date_time.iso8601 }}"

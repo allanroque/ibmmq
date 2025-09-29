@@ -1,0 +1,160 @@
+---
+- name: "Validações Pré-Atualização - Etapa 6"
+  hosts: mq_servers
+  become: yes
+  vars_files:
+    - vars/vars.yml
+  
+  tasks:
+    - name: "Verificar espaço em disco disponível"
+      shell: df -h /var/mqm
+      register: disk_space_mq
+      
+    - name: "Verificar espaço em disco do sistema"
+      shell: df -h /
+      register: disk_space_root
+
+    - name: "Validar espaço mínimo necessário (10GB)"
+      assert:
+        that:
+          - "{{ (disk_space_mq.stdout_lines[1].split()[3] | regex_replace('G', '') | int) >= 10 }}"
+        fail_msg: "Espaço insuficiente em /var/mqm. Necessário: 10GB, Disponível: {{ disk_space_mq.stdout_lines[1].split()[3] }}"
+
+    - name: "Verificar memória disponível"
+      shell: free -h
+      register: memory_info
+
+    - name: "Validar memória mínima (4GB)"
+      assert:
+        that:
+          - "{{ (memory_info.stdout_lines[1].split()[1] | regex_replace('Gi', '') | float) >= 4.0 }}"
+        fail_msg: "Memória insuficiente. Necessário: 4GB, Disponível: {{ memory_info.stdout_lines[1].split()[1] }}"
+
+    - name: "Verificar processos MQ em execução"
+      shell: ps aux | grep -E "(amqzxma0|amqzxma1|amqzxma2|amqzxma3|amqzxma4)" | grep -v grep
+      register: mq_processes
+      ignore_errors: true
+
+    - name: "Verificar se há aplicações conectadas"
+      shell: |
+        for qm in $(dspmq | grep -o 'QMNAME([^)]*)' | sed 's/QMNAME(\(.*\))/\1/'); do
+          echo "DISPLAY CONN(*) WHERE(CONNOPN<>0)" | runmqsc $qm 2>/dev/null | grep -c "CONN(" || echo "0"
+        done
+      register: active_connections
+      ignore_errors: true
+
+    - name: "Verificar filas com mensagens"
+      shell: |
+        for qm in $(dspmq | grep -o 'QMNAME([^)]*)' | sed 's/QMNAME(\(.*\))/\1/'); do
+          echo "DISPLAY QLOCAL(*) CURDEPTH" | runmqsc $qm 2>/dev/null | grep -E "CURDEPTH\([1-9]" | wc -l || echo "0"
+        done
+      register: queues_with_messages
+      ignore_errors: true
+
+    - name: "Verificar canais ativos"
+      shell: |
+        for qm in $(dspmq | grep -o 'QMNAME([^)]*)' | sed 's/QMNAME(\(.*\))/\1/'); do
+          echo "DISPLAY CHSTATUS(*)" | runmqsc $qm 2>/dev/null | grep -c "CHANNEL(" || echo "0"
+        done
+      register: active_channels
+      ignore_errors: true
+
+    - name: "Verificar integridade dos arquivos MQ"
+      shell: |
+        find /var/mqm -name "*.log" -exec ls -la {} \; | awk '{sum += $5} END {print sum}'
+      register: mq_logs_size
+      ignore_errors: true
+
+    - name: "Verificar permissões do usuário mqm"
+      shell: ls -la /var/mqm
+      register: mqm_permissions
+
+    - name: "Verificar se há jobs em execução"
+      shell: |
+        for qm in $(dspmq | grep -o 'QMNAME([^)]*)' | sed 's/QMNAME(\(.*\))/\1/'); do
+          echo "DISPLAY QMSTATUS" | runmqsc $qm 2>/dev/null | grep -i "job" || echo "Nenhum job ativo"
+        done
+      register: active_jobs
+      ignore_errors: true
+
+    - name: "Verificar dependências do sistema"
+      shell: |
+        rpm -qa | grep -E "(glibc|libstdc|gcc)" | head -5
+      register: system_dependencies
+
+    - name: "Verificar versão atual do MQ"
+      command: dspmqver
+      register: current_mq_version
+
+    - name: "Verificar se há atualizações pendentes"
+      shell: |
+        if command -v yum >/dev/null 2>&1; then
+          yum check-update 2>/dev/null | grep -i mq || echo "Nenhuma atualização MQ pendente"
+        elif command -v dnf >/dev/null 2>&1; then
+          dnf check-update 2>/dev/null | grep -i mq || echo "Nenhuma atualização MQ pendente"
+        else
+          echo "Gerenciador de pacotes não identificado"
+        fi
+      register: pending_updates
+      ignore_errors: true
+
+    - name: "Criar relatório de validação"
+      copy:
+        content: |
+          # Relatório de Validação Pré-Atualização
+          Data: {{ ansible_date_time.iso8601 }}
+          Host: {{ inventory_hostname }}
+          Versão Update: {{ updatemq_version }}
+          
+          ## Espaço em Disco:
+          - /var/mqm: {{ disk_space_mq.stdout_lines[1].split()[3] }}
+          - / (root): {{ disk_space_root.stdout_lines[1].split()[3] }}
+          
+          ## Memória:
+          - Total: {{ memory_info.stdout_lines[1].split()[1] }}
+          - Disponível: {{ memory_info.stdout_lines[2].split()[6] }}
+          
+          ## Estado do MQ:
+          - Versão Atual: {{ current_mq_version.stdout_lines[0] }}
+          - Processos MQ: {{ mq_processes.stdout_lines | length if mq_processes.stdout_lines is defined else 0 }}
+          - Conexões Ativas: {{ active_connections.stdout_lines | sum if active_connections.stdout_lines is defined else 0 }}
+          - Filas com Mensagens: {{ queues_with_messages.stdout_lines | sum if queues_with_messages.stdout_lines is defined else 0 }}
+          - Canais Ativos: {{ active_channels.stdout_lines | sum if active_channels.stdout_lines is defined else 0 }}
+          
+          ## Logs:
+          - Tamanho dos Logs MQ: {{ (mq_logs_size.stdout | int / 1024 / 1024) | round(2) if mq_logs_size.stdout is defined else 0 }} MB
+          
+          ## Dependências:
+          {{ system_dependencies.stdout_lines | join('\n') if system_dependencies.stdout_lines is defined else 'N/A' }}
+          
+          ## Atualizações Pendentes:
+          {{ pending_updates.stdout if pending_updates.stdout is defined else 'N/A' }}
+          
+          ## Status da Validação:
+          - Espaço em Disco: {{ 'OK' if (disk_space_mq.stdout_lines[1].split()[3] | regex_replace('G', '') | int) >= 10 else 'FALHA' }}
+          - Memória: {{ 'OK' if (memory_info.stdout_lines[1].split()[1] | regex_replace('Gi', '') | float) >= 4.0 else 'FALHA' }}
+          - Permissões: {{ 'OK' if 'mqm' in mqm_permissions.stdout else 'FALHA' }}
+        dest: "/var/log/ansible/updatemq/updatemq_{{ updatemq_version }}/pre_validation_{{ ansible_date_time.iso8601_basic }}.txt"
+        owner: mqm
+        group: mqm
+        mode: '0644'
+
+    - name: "Mostrar resumo das validações"
+      debug:
+        msg: |
+          === VALIDAÇÕES PRÉ-ATUALIZAÇÃO ===
+          Host: {{ inventory_hostname }}
+          Espaço em Disco: {{ disk_space_mq.stdout_lines[1].split()[3] }} (Necessário: 10GB)
+          Memória: {{ memory_info.stdout_lines[1].split()[1] }} (Necessário: 4GB)
+          Conexões Ativas: {{ active_connections.stdout_lines | sum if active_connections.stdout_lines is defined else 0 }}
+          Filas com Mensagens: {{ queues_with_messages.stdout_lines | sum if queues_with_messages.stdout_lines is defined else 0 }}
+          Status: {{ 'PRONTO PARA ATUALIZAÇÃO' if (disk_space_mq.stdout_lines[1].split()[3] | regex_replace('G', '') | int) >= 10 and (memory_info.stdout_lines[1].split()[1] | regex_replace('Gi', '') | float) >= 4.0 else 'FALHAS DETECTADAS' }}
+
+    - name: "Registrar resultado das validações"
+      set_fact:
+        pre_validation_result:
+          disk_space_ok: "{{ (disk_space_mq.stdout_lines[1].split()[3] | regex_replace('G', '') | int) >= 10 }}"
+          memory_ok: "{{ (memory_info.stdout_lines[1].split()[1] | regex_replace('Gi', '') | float) >= 4.0 }}"
+          active_connections: "{{ active_connections.stdout_lines | sum if active_connections.stdout_lines is defined else 0 }}"
+          queues_with_messages: "{{ queues_with_messages.stdout_lines | sum if queues_with_messages.stdout_lines is defined else 0 }}"
+          status: "{{ 'ready' if (disk_space_mq.stdout_lines[1].split()[3] | regex_replace('G', '') | int) >= 10 and (memory_info.stdout_lines[1].split()[1] | regex_replace('Gi', '') | float) >= 4.0 else 'failed' }}"
