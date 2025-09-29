@@ -1,0 +1,18 @@
+---
+- name: Simulação de ações com debug e espera
+  hosts: all
+  gather_facts: no
+
+  tasks:
+
+    - name: Ação inicial
+      debug:
+        msg: "Iniciando simulação no host {{ inventory_hostname }}"
+
+    - name: Esperar 10 segundos
+      wait_for:
+        timeout: 10
+
+    - name: Ação final
+      debug:
+        msg: "Simulação concluída no host {{ inventory_hostname }}"

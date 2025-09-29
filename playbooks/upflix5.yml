@@ -1,0 +1,28 @@
+---
+- name: UPDATEMQ 5 - Consolidação de Logs
+  hosts: mq_servers
+  gather_facts: yes
+  become: yes
+  vars_files:
+    - vars/vars.yml
+
+  tasks:
+    - name: Garantir diretório de logs existe
+      file:
+        path: "/var/log/ansible/updatemq/updatemq_{{ updatemq_version }}"
+        state: directory
+        owner: mqm
+        group: mqm
+        mode: '0755'
+
+    - name: Gerar log consolidado do servidor
+      template:
+        src: updatemq_log_template.j2
+        dest: "/var/log/ansible/updatemq/updatemq_{{ updatemq_version }}/log_{{ inventory_hostname }}.log"
+        owner: mqm
+        group: mqm
+        mode: '0644'
+
+    - name: Mostrar caminho do log gerado
+      debug:
+        msg: "Log gerado em /var/log/ansible/updatemq/updatemq_{{ updatemq_version }}/log_{{ inventory_hostname }}.log"
