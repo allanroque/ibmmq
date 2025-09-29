@@ -17,8 +17,8 @@
           {{
             dict(
               mq_version_raw.stdout_lines
-              | map('regex_search', '^(.*?):\\s*(.*)$', '\\1|\\2')
-              | select('string')
+              | select('search', ':')
+              | map('regex_replace', '^([^:]+):\\s*(.*)$', '\\1|\\2')
               | map('split', '|', 1)
             )
           }}
