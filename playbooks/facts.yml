@@ -11,17 +11,14 @@
       command: dspmqver
       register: mq_version_raw
 
-    - name: Parse da versão em dict
+    - name: Inicializar dict da versão
       set_fact:
-        mq_version: >-
-          {{
-            dict(
-              mq_version_raw.stdout_lines
-              | select('search', ':')
-              | map('regex_replace', '^([^:]+):\\s*(.*)$', '\\1|\\2')
-              | map('split', '|', 1)
-            )
-          }}
+        mq_version: {}
+
+    - name: Popular dict da versão
+      set_fact:
+        mq_version: "{{ mq_version | combine({ (item.split(':', 1)[0] | trim) : (item.split(':', 1)[1] | default('') | trim) }) }}"
+      loop: "{{ mq_version_raw.stdout_lines | select('search', ':') | list }}"
 
     - name: Queue Managers disponíveis
       command: dspmq
