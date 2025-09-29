@@ -32,12 +32,13 @@
             | select('search', 'QMNAME')
             | map('regex_replace', '^.*QMNAME\\(([^)]+)\\).*STATUS\\(([^)]+)\\).*$', '\\1|\\2')
             | map('split', '|', 1)
+            | map('community.general.dict_kv', 'name', 'status')
             | list
           }}
 
     - name: Filtrar apenas QMgrs ativos
       set_fact:
-        qmgrs_running: "{{ qmgrs_info | selectattr('1','equalto','Running') | map('first') | list }}"
+        qmgrs_running: "{{ qmgrs_info | selectattr('status','equalto','Running') | map(attribute='name') | list }}"
 
     - name: Listar canais dos QMgrs ativos
       shell: "echo 'DISPLAY CHSTATUS(*)' | runmqsc {{ item }}"
