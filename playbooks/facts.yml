@@ -91,6 +91,7 @@
         name: "{{ hostvars['mq01'].inventory_hostname }}"
         inventory: "INV-MQ"
         state: present
+        enabled: true
         variables:
           ansible_host: "{{ hostvars['mq01'].ansible_host }}"
           mq_health: "{{ hostvars['mq01'].mq_health }}"
