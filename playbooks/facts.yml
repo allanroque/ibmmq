@@ -2,6 +2,9 @@
 - name: Coleta de visibilidade simples do IBM MQ
   hosts: mq_servers
   gather_facts: yes
+  environment:
+    PATH: "/opt/mqm/bin:{{ ansible_env.PATH }}"
+
   tasks:
 
     - name: Versão do MQ
