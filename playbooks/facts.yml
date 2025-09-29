@@ -7,10 +7,12 @@
     - name: Versão do MQ
       command: dspmqver
       register: mq_version
+      become: mqm
 
     - name: Queue Managers disponíveis
       command: dspmq
       register: qmgrs_raw
+      become: mqm
 
     - name: Extrair nomes dos QMgrs
       set_fact:
@@ -23,16 +25,19 @@
       shell: "echo 'DISPLAY CHSTATUS(*)' | runmqsc {{ item }}"
       loop: "{{ qmgrs }}"
       register: mq_channels
+      become: mqm
 
     - name: Listar filas
       shell: "echo 'DISPLAY QLOCAL(*) CURDEPTH MAXDEPTH' | runmqsc {{ item }}"
       loop: "{{ qmgrs }}"
       register: mq_queues
+      become: mqm
 
     - name: Listar listeners
       shell: "echo 'DISPLAY LISTENER(*)' | runmqsc {{ item }}"
       loop: "{{ qmgrs }}"
       register: mq_listeners
+      become: mqm
 
     - name: Consolidar resultado
       set_fact:
