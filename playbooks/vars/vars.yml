@@ -33,3 +33,6 @@ max_active_connections: 100
 # Configurações de teste
 test_timeout_seconds: 300
 load_test_messages: 10
+
+#variavel com a listagem dos servidore
+server_list: |

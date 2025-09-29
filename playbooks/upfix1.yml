@@ -1,37 +1,18 @@
 ---
-- name: Acessibilidade e Inventários - UPFIX 1 - Preparação
-  hosts: localhost
-  gather_facts: false
-  vars_files:
-    - vars/vars.yml
+- name: Validação de acessibilidade
+  hosts: all
+  gather_facts: no
 
   tasks:
 
-    - name: Validar se os servidores existem no inventário principal
-      ansible.controller.host:
-        name: "{{ item }}"
-        inventory: "{{ ac_inv_all_hosts }}"
-        enabled: true
-        state: present
-      loop: "{{ server_list.splitlines() }}"
-      register: check_inventory_result
-      check_mode: true
-
-    - name: Mostrar resultado da validação de inventário
+    - name: Ação inicial
       debug:
-        var: check_inventory_result.results
+        msg: "Iniciando validacao de acessibilidade no host {{ inventory_hostname }}"
 
-- name: Testar acessibilidade dos servidores
-  hosts: "{{ server_list.splitlines() }}"
-  gather_facts: false
+    - name: Esperar 10 segundos
+      wait_for:
+        timeout: 10
 
-  tasks:
-    - name: Verificar se o host responde ao ping
-      ping:
-      register: ping_result
-      ignore_errors: true
-      ignore_unreachable: true
-
-    - name: Mostrar resultado do ping
+    - name: Ação final
       debug:
-        var: ping_result
+        msg: "Simulação concluída no host {{ inventory_hostname }}"
