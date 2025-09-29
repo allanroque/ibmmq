@@ -35,25 +35,24 @@
       register: mq_listeners
 
     - name: Consolidar resultado
-      copy:
-        dest: "/tmp/mq_health_{{ inventory_hostname }}.json"
-        content: |
-          {
-            "host": "{{ inventory_hostname }}",
-            "collected_at": "{{ ansible_date_time.iso8601 }}",
-            "core": {
-              "os": "{{ ansible_distribution }} {{ ansible_distribution_version }}",
-              "kernel": "{{ ansible_kernel }}",
-              "arch": "{{ ansible_architecture }}",
-              "uptime": "{{ ansible_uptime_seconds }}",
-              "vcpus": "{{ ansible_processor_vcpus }}",
-              "memory_mb": "{{ ansible_memtotal_mb }}"
-            },
-            "mq": {
-              "version": "{{ mq_version.stdout | trim }}",
-              "qmgrs": {{ qmgrs | to_json }},
-              "channels": {{ mq_channels.results | map(attribute='stdout_lines') | list | to_json }},
-              "queues": {{ mq_queues.results | map(attribute='stdout_lines') | list | to_json }},
-              "listeners": {{ mq_listeners.results | map(attribute='stdout_lines') | list | to_json }}
-            }
-          }
+      set_fact:
+        mq_health:
+          host: "{{ inventory_hostname }}"
+          collected_at: "{{ ansible_date_time.iso8601 }}"
+          core:
+            os: "{{ ansible_distribution }} {{ ansible_distribution_version }}"
+            kernel: "{{ ansible_kernel }}"
+            arch: "{{ ansible_architecture }}"
+            uptime: "{{ ansible_uptime_seconds }}"
+            vcpus: "{{ ansible_processor_vcpus }}"
+            memory_mb: "{{ ansible_memtotal_mb }}"
+          mq:
+            version: "{{ mq_version.stdout | trim }}"
+            qmgrs: "{{ qmgrs }}"
+            channels: "{{ mq_channels.results | map(attribute='stdout_lines') | list }}"
+            queues: "{{ mq_queues.results | map(attribute='stdout_lines') | list }}"
+            listeners: "{{ mq_listeners.results | map(attribute='stdout_lines') | list }}"
+
+    - name: Exibir resultado no console do AAP
+      debug:
+        var: mq_health
