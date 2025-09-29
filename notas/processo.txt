@@ -1,0 +1,8 @@
+
+
+1 - validacao
+2 - acesso
+3 - checklist
+4 - consolidacao
+5 - atualizacao
+6 - validacao e teste

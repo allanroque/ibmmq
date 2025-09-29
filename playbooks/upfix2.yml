@@ -1,0 +1,23 @@
+---
+- name: Construção de diretórios e logs para o UpdateMQ UPDATEMQ {{ updatemq_version }} - Construção de logs
+  hosts: mq_servers
+  vars_files:
+    - vars/vars.yml
+  become: yes
+
+  tasks:
+    - name: Gerar diretórios de log do Ansible e UpdateMQ
+      file:
+        state: directory
+        path: "{{ item }}"
+        owner: mqm
+        group: mqm
+        mode: '0755'
+      loop:
+        - /var/log/ansible
+        - /var/log/ansible/updatemq
+        - /var/log/ansible/updatemq/updatemq_{{ updatemq_version }}
+
+    - name: Mostrar fatos coletados
+      debug:
+        var: local_facts

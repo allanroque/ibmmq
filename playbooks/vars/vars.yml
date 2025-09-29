@@ -1,0 +1,6 @@
+---
+#variáveis do AC
+ac_inv_all_hosts: INV-MQ
+
+#variáveis do processo de updatefix
+updatemq_version: "0001"

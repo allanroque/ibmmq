@@ -1,0 +1,84 @@
+/opt/mqm/bin/dspmqver
+
+[mqm@ip-10-0-0-107 ~]$ runmqsc
+5724-H72 (C) Copyright IBM Corp. 1994, 2025.
+AMQ8146E: IBM MQ queue manager not available.
+
+No MQSC commands read.
+
+[mqm@ip-10-0-0-107 ~]$ dspmqver
+Name:        IBM MQ
+Version:     9.4.0.10
+Level:       p940-010-250212.1.TRIAL
+BuildType:   IKAP - (Production)
+Platform:    IBM MQ for Linux (x86-64 platform)
+Mode:        64-bit
+O/S:         Linux 6.12.0-55.25.1.el10_0.x86_64
+O/S Details: Red Hat Enterprise Linux 10.0 (Coughlan)
+InstName:    Installation1
+InstDesc:
+Primary:     No
+InstPath:    /opt/mqm
+DataPath:    /var/mqm
+MaxCmdLevel: 940
+LicenseType: Trial
+ReleaseType: Long Term Support (LTS)
+
+[mqm@ip-10-0-0-107 ~]$ dspmq
+QMNAME(QM1)                                               STATUS(Ended unexpectedly)
+QMNAME(QM2)                                               STATUS(Running)
+
+ansible_host: 3.144.87.148
+mq_health:
+  host: mq01
+  collected_at: '2025-09-29T13:56:13Z'
+  version:
+    Name: IBM MQ
+    Version: 9.4.0.10
+    Level: p940-010-250212.1.TRIAL
+    BuildType: IKAP - (Production)
+    Platform: IBM MQ for Linux (x86-64 platform)
+    Mode: 64-bit
+    O/S: Linux 6.12.0-55.25.1.el10_0.x86_64
+    O/S Details: Red Hat Enterprise Linux 10.0 (Coughlan)
+    InstName: Installation1
+    InstDesc: ''
+    Primary: 'No'
+    InstPath: /opt/mqm
+    DataPath: /var/mqm
+    MaxCmdLevel: '940'
+    LicenseType: Trial
+    ReleaseType: Long Term Support (LTS)
+  qmgrs_all:
+    - name: >-
+        QMNAME(QM1)                                              
+        STATUS(Running)
+      status: ''
+    - name: >-
+        QMNAME(QM2)                                              
+        STATUS(Running)
+      status: ''
+  qmgrs_running: []
+  channels: []
+  queues: []
+  listeners: []
+
+
+---
+- name: Simulação de ações com debug e espera
+  hosts: all
+  gather_facts: no
+
+  tasks:
+
+    - name: Ação inicial
+      debug:
+        msg: "Iniciando simulação no host {{ inventory_hostname }}"
+
+    - name: Esperar 10 segundos
+      wait_for:
+        timeout: 10
+
+    - name: Ação final
+      debug:
+        msg: "Simulação concluída no host {{ inventory_hostname }}"
