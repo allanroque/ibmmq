@@ -29,9 +29,9 @@
         qmgrs_info: >-
           {{
             qmgrs_raw.stdout_lines
-            | map('regex_search', 'QMNAME\\(([^)]+)\\).*STATUS\\(([^)]+)\\)', '\\1|\\2')
-            | select('string')
-            | map('split', '|')
+            | select('search', 'QMNAME')
+            | map('regex_replace', '^.*QMNAME\\(([^)]+)\\).*STATUS\\(([^)]+)\\).*$', '\\1|\\2')
+            | map('split', '|', 1)
             | list
           }}
 
