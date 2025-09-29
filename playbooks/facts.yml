@@ -81,15 +81,16 @@
       copy:
         content: "{{ mq_health | to_nice_json }}"
         dest: "/tmp/mq_health_{{ inventory_hostname }}.json"
-        
-    - name: Registrar resultado do MQ no host do inventário
+
+- name: Registrar no Controller
+  hosts: localhost
+  connection: local
+  tasks:
+    - name: Registrar resultado do MQ no inventário do AAP
       ansible.controller.host:
-        name: "{{ inventory_hostname }}"
+        name: "{{ hostvars['mq01'].inventory_hostname }}"
         inventory: "INV-MQ"
         state: present
-        variables: >-
-          {{
-            hostvars[inventory_hostname].ansible_facts |
-            combine({'ansible_host': hostvars[inventory_hostname].ansible_host}) |
-            combine({'mq_health': mq_health})
-          }}
+        variables:
+          ansible_host: "{{ hostvars['mq01'].ansible_host }}"
+          mq_health: "{{ hostvars['mq01'].mq_health }}"
