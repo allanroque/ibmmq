@@ -1,5 +1,5 @@
 ---
-- name: Coleta de visibilidade simples do IBM MQ
+- name: Coleta de visibilidade IBM MQ
   hosts: mq_servers
   gather_facts: yes
   environment:
@@ -9,41 +9,64 @@
 
     - name: Versão do MQ
       command: dspmqver
-      register: mq_version
+      register: mq_version_raw
+
+    - name: Parse da versão em dict
+      set_fact:
+        mq_version: >-
+          {{
+            dict(
+              mq_version_raw.stdout_lines
+              | map('regex_replace', '^([^:]+):\\s*(.*)$', '\\1=\\2')
+              | map('split', '=', 1)
+            )
+          }}
 
     - name: Queue Managers disponíveis
       command: dspmq
       register: qmgrs_raw
 
-    - name: Extrair nomes dos QMgrs
+    - name: Extrair QMgrs com status
       set_fact:
-        qmgrs: "{{ qmgrs_raw.stdout_lines
-                   | map('regex_search', 'QMNAME\\(([^)]+)\\)', '\\1')
-                   | select('string')
-                   | list }}"
+        qmgrs_info: >-
+          {{
+            qmgrs_raw.stdout_lines
+            | map('regex_search', 'QMNAME\\(([^)]+)\\).*STATUS\\(([^)]+)\\)', '\\1|\\2')
+            | select('string')
+            | map('split', '|')
+            | list
+          }}
 
-    - name: Listar canais
+    - name: Filtrar apenas QMgrs ativos
+      set_fact:
+        qmgrs_running: "{{ qmgrs_info | selectattr('1','equalto','Running') | map('first') | list }}"
+
+    - name: Listar canais dos QMgrs ativos
       shell: "echo 'DISPLAY CHSTATUS(*)' | runmqsc {{ item }}"
-      loop: "{{ qmgrs }}"
+      loop: "{{ qmgrs_running }}"
       register: mq_channels
 
-    - name: Listar filas
+    - name: Listar filas dos QMgrs ativos
       shell: "echo 'DISPLAY QLOCAL(*) CURDEPTH MAXDEPTH' | runmqsc {{ item }}"
-      loop: "{{ qmgrs }}"
+      loop: "{{ qmgrs_running }}"
       register: mq_queues
 
-    - name: Listar listeners
+    - name: Listar listeners dos QMgrs ativos
       shell: "echo 'DISPLAY LISTENER(*)' | runmqsc {{ item }}"
-      loop: "{{ qmgrs }}"
+      loop: "{{ qmgrs_running }}"
       register: mq_listeners
 
     - name: Consolidar resultado
       debug:
-        msg:
+        var: mq_health
+
+      vars:
+        mq_health:
           host: "{{ inventory_hostname }}"
           collected_at: "{{ ansible_date_time.iso8601 }}"
-          mq_version: "{{ mq_version.stdout }}"
-          qmgrs: "{{ qmgrs }}"
+          version: "{{ mq_version }}"
+          qmgrs_all: "{{ qmgrs_info }}"
+          qmgrs_running: "{{ qmgrs_running }}"
           channels: "{{ mq_channels.results | map(attribute='stdout_lines') | list }}"
           queues: "{{ mq_queues.results | map(attribute='stdout_lines') | list }}"
           listeners: "{{ mq_listeners.results | map(attribute='stdout_lines') | list }}"
