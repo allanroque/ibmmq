@@ -2,18 +2,20 @@
 - name: Coleta de visibilidade simples do IBM MQ
   hosts: mq_servers
   gather_facts: yes
-  vars:
-    ansible_become: true
-    ansible_become_user: mqm
-    ansible_become_method: sudo
   tasks:
 
     - name: Versão do MQ
       command: dspmqver
+      become: true
+      become_user: mqm
+      become_method: sudo   # ou "su", conforme seu ambiente
       register: mq_version
 
     - name: Queue Managers disponíveis
       command: dspmq
+      become: true
+      become_user: mqm
+      become_method: sudo
       register: qmgrs_raw
 
     - name: Extrair nomes dos QMgrs
@@ -25,38 +27,35 @@
 
     - name: Listar canais
       shell: "echo 'DISPLAY CHSTATUS(*)' | runmqsc {{ item }}"
+      become: true
+      become_user: mqm
+      become_method: sudo
       loop: "{{ qmgrs }}"
       register: mq_channels
 
     - name: Listar filas
       shell: "echo 'DISPLAY QLOCAL(*) CURDEPTH MAXDEPTH' | runmqsc {{ item }}"
+      become: true
+      become_user: mqm
+      become_method: sudo
       loop: "{{ qmgrs }}"
       register: mq_queues
 
     - name: Listar listeners
       shell: "echo 'DISPLAY LISTENER(*)' | runmqsc {{ item }}"
+      become: true
+      become_user: mqm
+      become_method: sudo
       loop: "{{ qmgrs }}"
       register: mq_listeners
 
     - name: Consolidar resultado
-      set_fact:
-        mq_health:
+      debug:
+        msg:
           host: "{{ inventory_hostname }}"
           collected_at: "{{ ansible_date_time.iso8601 }}"
-          core:
-            os: "{{ ansible_distribution }} {{ ansible_distribution_version }}"
-            kernel: "{{ ansible_kernel }}"
-            arch: "{{ ansible_architecture }}"
-            uptime: "{{ ansible_uptime_seconds }}"
-            vcpus: "{{ ansible_processor_vcpus }}"
-            memory_mb: "{{ ansible_memtotal_mb }}"
-          mq:
-            version: "{{ mq_version.stdout | trim }}"
-            qmgrs: "{{ qmgrs }}"
-            channels: "{{ mq_channels.results | map(attribute='stdout_lines') | list }}"
-            queues: "{{ mq_queues.results | map(attribute='stdout_lines') | list }}"
-            listeners: "{{ mq_listeners.results | map(attribute='stdout_lines') | list }}"
-
-    - name: Exibir resultado no console do AAP
-      debug:
-        var: mq_health
+          mq_version: "{{ mq_version.stdout }}"
+          qmgrs: "{{ qmgrs }}"
+          channels: "{{ mq_channels.results | map(attribute='stdout_lines') | list }}"
+          queues: "{{ mq_queues.results | map(attribute='stdout_lines') | list }}"
+          listeners: "{{ mq_listeners.results | map(attribute='stdout_lines') | list }}"
