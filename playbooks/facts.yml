@@ -1,6 +1,6 @@
 ---
 - name: Coleta de visibilidade IBM MQ
-  hosts: mq_servers
+  hosts: mq_lab_redhat
   gather_facts: yes
   environment:
     PATH: "/opt/mqm/bin:{{ ansible_env.PATH }}"
