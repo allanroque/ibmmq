@@ -2,9 +2,10 @@
 - name: Executa um comando dinâmico
   hosts: all
   gather_facts: no
+  environment:
+    PATH: "/opt/mqm/bin:{{ ansible_env.PATH }}"
   vars:
     my_command: "uptime"   # valor padrão, pode ser sobrescrito em linha de comando
-
   tasks:
     - name: Rodar comando definido em variável
       ansible.builtin.command: "{{ my_command }}"
