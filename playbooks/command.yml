@@ -1,0 +1,15 @@
+---
+- name: Executa um comando dinâmico
+  hosts: all
+  gather_facts: no
+  vars:
+    my_command: "uptime"   # valor padrão, pode ser sobrescrito em linha de comando
+
+  tasks:
+    - name: Rodar comando definido em variável
+      ansible.builtin.command: "{{ my_command }}"
+      register: output
+
+    - name: Mostrar saída
+      ansible.builtin.debug:
+        var: output.stdout
