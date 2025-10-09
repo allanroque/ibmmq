@@ -1,3 +1,0 @@
----
-- name: Including the task list for this platform
-  ansible.builtin.include_tasks: "{{ ansible_system }}_{{ role_name }}.yml"

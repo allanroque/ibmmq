@@ -1,166 +1,182 @@
 ---
-- name: "Atualização do IBM MQ - Etapa 7"
-  hosts: mq_servers
-  become: yes
-  vars_files:
-    - vars/vars.yml
-  
+- name: Atualização controlada do IBM MQ para versão 9.4
+  hosts: node2
+  become: true
+
+  vars:
+    mq_user: mqm
+    mq_group: mqm
+    mq_bin_path: /opt/mqm/bin
+    mq_home: /home/mqm
+    mq_install_dir: "{{ mq_home }}/IBM_MQ"
+    mq_pkg_local: "9.4.0.10-IBM-MQTRIAL-LinuxX64.tar.gz"
+    mq_backup_dir: "/tmp/mq_backup_{{ ansible_date_time.date }}_{{ ansible_date_time.hour }}{{ ansible_date_time.minute }}"
+
+    mq_rpms_old:
+      - MQSeriesSDK-9.3.0-0.x86_64
+      - MQSeriesMan-9.3.0-0.x86_64
+      - MQSeriesSamples-9.3.0-0.x86_64
+      - MQSeriesClient-9.3.0-0.x86_64
+      - MQSeriesServer-9.3.0-0.x86_64
+      - MQSeriesGSKit-9.3.0-0.x86_64
+      - MQSeriesRuntime-9.3.0-0.x86_64
+
+    mq_rpms_new:
+      - MQSeriesRuntime-9.4.0-10.x86_64.rpm
+      - MQSeriesGSKit-9.4.0-10.x86_64.rpm
+      - MQSeriesServer-9.4.0-10.x86_64.rpm
+      - MQSeriesClient-9.4.0-10.x86_64.rpm
+      - MQSeriesSamples-9.4.0-10.x86_64.rpm
+      - MQSeriesMan-9.4.0-10.x86_64.rpm
+      - MQSeriesSDK-9.4.0-10.x86_64.rpm
+
   tasks:
-    - name: "Parar todos os Queue Managers"
-      shell: |
-        for qm in $(dspmq | grep -o 'QMNAME([^)]*)' | sed 's/QMNAME(\(.*\))/\1/'); do
-          if [ "$(dspmq -m $qm | grep -o 'STATUS([^)]*)' | sed 's/STATUS(\(.*\))/\1/')" = "Running" ]; then
-            echo "Parando Queue Manager: $qm"
-            endmqm $qm
-            sleep 5
-          fi
+
+    - name: Etapa 0 - Validar versão mínima do RHEL (8.8+)
+      ansible.builtin.command: cat /etc/redhat-release
+      register: rhel_version
+      changed_when: false
+
+    - name: Exibir versão do sistema
+      ansible.builtin.debug:
+        msg: "{{ rhel_version.stdout_lines }}"
+
+    - name: Bloquear execução se versão do RHEL < 8.8
+      ansible.builtin.assert:
+        that:
+          - "'release 8.8' in rhel_version.stdout or 'release 9' in rhel_version.stdout"
+        fail_msg: "❌ A versão do sistema é inferior a RHEL 8.8. O IBM MQ 9.4 requer RHEL 8.8 ou superior."
+
+    - name: Etapa 1 - Exibir Queue Managers ativos
+      ansible.builtin.command: "{{ mq_bin_path }}/dspmq"
+      become_user: "{{ mq_user }}"
+      register: qmgr_list
+      changed_when: false
+      ignore_errors: true
+
+    - name: Exibir lista de Queue Managers
+      ansible.builtin.debug:
+        msg: "{{ qmgr_list.stdout_lines | default(['Nenhum QM ativo.']) }}"
+
+    - name: Etapa 2 - Parar todos os Queue Managers ativos
+      ansible.builtin.shell: |
+        for qm in $({{ mq_bin_path }}/dspmq 2>/dev/null | awk '{print $1}' | sed 's/QMNAME(//;s/)//'); do
+          echo "Parando $qm..."
+          {{ mq_bin_path }}/endmqm -w $qm || true
         done
-      register: stop_qm_result
+      become_user: "{{ mq_user }}"
+      register: stop_qm
+      changed_when: "'AMQ' in stop_qm.stdout or 'ended normally' in stop_qm.stdout"
       ignore_errors: true
 
-    - name: "Aguardar parada completa dos QMs"
-      wait_for:
-        timeout: 60
-      when: stop_qm_result is defined
+    - name: Etapa 3 - Criar backup dos logs e QMs
+      ansible.builtin.shell: |
+        mkdir -p {{ mq_backup_dir }}
+        cp -a /var/mqm/log {{ mq_backup_dir }}/ || true
+        cp -a /var/mqm/qmgrs {{ mq_backup_dir }}/ || true
+      changed_when: true
 
-    - name: "Verificar se todos os QMs foram parados"
-      shell: dspmq
-      register: qm_status_after_stop
+    - name: Exibir local do backup
+      ansible.builtin.debug:
+        msg: "Backup armazenado em {{ mq_backup_dir }}"
 
-    - name: "Fazer backup da instalação atual"
-      shell: |
-        cp -r /opt/mqm /opt/mqm_backup_{{ ansible_date_time.iso8601_basic }}
-        tar -czf /var/backup/mq/mq_installation_backup_{{ ansible_date_time.iso8601_basic }}.tar.gz /opt/mqm_backup_{{ ansible_date_time.iso8601_basic }}
-      register: installation_backup
-      ignore_errors: true
+    - name: Verificar se o pacote MQ 9.4 já existe no servidor
+      ansible.builtin.stat:
+        path: "{{ mq_install_dir }}/ibmmq_9.4.tar.gz"
+      register: pkg_exists
 
-    - name: "Verificar se há pacotes MQ instalados"
-      shell: rpm -qa | grep -i mq
-      register: installed_mq_packages
-
-    - name: "Fazer download do novo pacote MQ (se necessário)"
-      get_url:
-        url: "{{ mq_package_url | default('') }}"
-        dest: "/tmp/mq_update_{{ updatemq_version }}.rpm"
+    - name: Copiar pacote IBM MQ 9.4 (se necessário)
+      ansible.builtin.copy:
+        src: "{{ mq_pkg_local }}"
+        dest: "{{ mq_install_dir }}/ibmmq_9.4.tar.gz"
         mode: '0644'
-      when: mq_package_url is defined
-      register: download_package
+        owner: "{{ mq_user }}"
+        group: "{{ mq_group }}"
+      when: not pkg_exists.stat.exists
+
+    - name: Extrair pacote IBM MQ 9.4 (se ainda não extraído)
+      ansible.builtin.unarchive:
+        src: "{{ mq_install_dir }}/ibmmq_9.4.tar.gz"
+        dest: "{{ mq_install_dir }}"
+        remote_src: true
+        owner: "{{ mq_user }}"
+        group: "{{ mq_group }}"
+        creates: "{{ mq_install_dir }}/MQServer"
+
+    - name: Garantir permissões adequadas para instalação
+      ansible.builtin.file:
+        path: "{{ mq_install_dir }}"
+        recurse: yes
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Aceitar licença IBM MQ (pré-instalação - mqlicense.sh)
+      ansible.builtin.command: "./mqlicense.sh -accept"
+      args:
+        chdir: "{{ mq_install_dir }}/MQServer"
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Etapa 4 - Remover pacotes antigos do MQ (9.3)
+      ansible.builtin.dnf:
+        name: "{{ mq_rpms_old }}"
+        state: absent
       ignore_errors: true
 
-    - name: "Instalar atualização do MQ"
-      yum:
-        name: "{{ mq_package_name | default('ibmmq-server') }}"
-        state: latest
-        update_cache: yes
-      register: mq_update_result
+    - name: Etapa 5 - Instalar pacotes da nova versão (9.4)
+      ansible.builtin.dnf:
+        name: "{{ mq_install_dir }}/MQServer/{{ item }}"
+        state: present
+        disable_gpg_check: true
+      loop: "{{ mq_rpms_new }}"
+      register: install_new
       ignore_errors: true
 
-    - name: "Verificar instalação da atualização"
-      command: dspmqver
-      register: new_mq_version
+    - name: Aceitar licença pós-instalação
+      ansible.builtin.command: "./mqlicense -accept"
+      args:
+        chdir: "/opt/mqm/bin"
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Etapa 6 - Verificar versão instalada do IBM MQ
+      ansible.builtin.command: "{{ mq_bin_path }}/dspmqver"
+      become_user: "{{ mq_user }}"
+      register: mqver
+      changed_when: false
       ignore_errors: true
 
-    - name: "Aplicar configurações pós-atualização"
-      shell: |
-        # Recriar links simbólicos se necessário
-        if [ ! -L /usr/bin/runmqsc ]; then
-          ln -sf /opt/mqm/bin/runmqsc /usr/bin/runmqsc
-        fi
-        if [ ! -L /usr/bin/dspmq ]; then
-          ln -sf /opt/mqm/bin/dspmq /usr/bin/dspmq
-        fi
-      register: post_update_config
-      ignore_errors: true
+    - name: Exibir versão atual do IBM MQ
+      ansible.builtin.debug:
+        msg: "{{ mqver.stdout_lines | default(['Não foi possível verificar a versão.']) }}"
 
-    - name: "Verificar integridade da instalação"
-      shell: |
-        /opt/mqm/bin/dspmqver
-        /opt/mqm/bin/dspmq
-      register: installation_check
-      ignore_errors: true
-
-    - name: "Iniciar Queue Managers"
-      shell: |
-        for qm in $(dspmq | grep -o 'QMNAME([^)]*)' | sed 's/QMNAME(\(.*\))/\1/'); do
-          if [ "$(dspmq -m $qm | grep -o 'STATUS([^)]*)' | sed 's/STATUS(\(.*\))/\1/')" != "Running" ]; then
-            echo "Iniciando Queue Manager: $qm"
-            strmqm $qm
-            sleep 10
-          fi
+    - name: Etapa 7 - Reiniciar Queue Managers
+      ansible.builtin.shell: |
+        for qm in $({{ mq_bin_path }}/dspmq 2>/dev/null | awk '{print $1}' | sed 's/QMNAME(//;s/)//'); do
+          echo "Iniciando $qm..."
+          {{ mq_bin_path }}/strmqm $qm || true
         done
-      register: start_qm_result
+      become_user: "{{ mq_user }}"
+      register: start_qm
+      changed_when: "'AMQ' in start_qm.stdout"
       ignore_errors: true
 
-    - name: "Aguardar inicialização dos QMs"
-      wait_for:
-        timeout: 120
-      when: start_qm_result is defined
-
-    - name: "Verificar status final dos QMs"
-      shell: dspmq
-      register: final_qm_status
-
-    - name: "Executar comandos de pós-atualização"
-      shell: |
-        for qm in $(dspmq | grep -o 'QMNAME([^)]*)' | sed 's/QMNAME(\(.*\))/\1/'); do
-          if [ "$(dspmq -m $qm | grep -o 'STATUS([^)]*)' | sed 's/STATUS(\(.*\))/\1/')" = "Running" ]; then
-            echo "Executando comandos pós-atualização no QM: $qm"
-            echo "ALTER QMGR DEADQ(SYSTEM.DEAD.LETTER.QUEUE)" | runmqsc $qm
-            echo "ALTER QMGR MAXMSGL(104857600)" | runmqsc $qm
-          fi
-        done
-      register: post_update_commands
+    - name: Exibir status dos Queue Managers
+      ansible.builtin.command: "{{ mq_bin_path }}/dspmq"
+      become_user: "{{ mq_user }}"
+      register: qmgr_status
+      changed_when: false
       ignore_errors: true
 
-    - name: "Criar relatório da atualização"
-      copy:
-        content: |
-          # Relatório de Atualização IBM MQ
-          Data: {{ ansible_date_time.iso8601 }}
-          Host: {{ inventory_hostname }}
-          Versão Update: {{ updatemq_version }}
-          
-          ## Status da Atualização:
-          - Parada dos QMs: {{ 'SUCESSO' if stop_qm_result.rc == 0 else 'FALHA' }}
-          - Backup da Instalação: {{ 'SUCESSO' if installation_backup.rc == 0 else 'FALHA' }}
-          - Instalação da Atualização: {{ 'SUCESSO' if mq_update_result.rc == 0 else 'FALHA' }}
-          - Inicialização dos QMs: {{ 'SUCESSO' if start_qm_result.rc == 0 else 'FALHA' }}
-          
-          ## Versões:
-          - Versão Anterior: {{ mq_health.version.Version | default('N/A') }}
-          - Versão Nova: {{ new_mq_version.stdout_lines[0] if new_mq_version.stdout_lines is defined else 'N/A' }}
-          
-          ## Pacotes Instalados:
-          {{ installed_mq_packages.stdout_lines | join('\n') if installed_mq_packages.stdout_lines is defined else 'N/A' }}
-          
-          ## Status Final dos QMs:
-          {{ final_qm_status.stdout if final_qm_status.stdout is defined else 'N/A' }}
-          
-          ## Comandos Pós-Atualização:
-          {{ post_update_commands.stdout if post_update_commands.stdout is defined else 'N/A' }}
-          
-          ## Status Geral:
-          - Atualização: {{ 'SUCESSO' if mq_update_result.rc == 0 and start_qm_result.rc == 0 else 'FALHA' }}
-        dest: "/var/log/ansible/updatemq/updatemq_{{ updatemq_version }}/update_report_{{ ansible_date_time.iso8601_basic }}.txt"
-        owner: mqm
-        group: mqm
-        mode: '0644'
+    - name: Etapa 8 - Testar fila e conexão pós-upgrade
+      ansible.builtin.shell: |
+        echo "Upgrade MQ 9.4 concluído com sucesso!" | /opt/mqm/samp/bin/amqsput TEST.QUEUE QM1 || true
+      become_user: "{{ mq_user }}"
+      register: msg_test
+      changed_when: false
+      ignore_errors: true
 
-    - name: "Mostrar resultado da atualização"
-      debug:
-        msg: |
-          === RESULTADO DA ATUALIZAÇÃO ===
-          Host: {{ inventory_hostname }}
-          Status: {{ 'SUCESSO' if mq_update_result.rc == 0 and start_qm_result.rc == 0 else 'FALHA' }}
-          Versão Anterior: {{ mq_health.version.Version | default('N/A') }}
-          Versão Nova: {{ new_mq_version.stdout_lines[0] if new_mq_version.stdout_lines is defined else 'N/A' }}
-          QMs Ativos: {{ final_qm_status.stdout_lines | select('search', 'Running') | list | length if final_qm_status.stdout_lines is defined else 0 }}
-
-    - name: "Registrar resultado da atualização"
-      set_fact:
-        update_result:
-          status: "{{ 'success' if mq_update_result.rc == 0 and start_qm_result.rc == 0 else 'failed' }}"
-          old_version: "{{ mq_health.version.Version | default('N/A') }}"
-          new_version: "{{ new_mq_version.stdout_lines[0] if new_mq_version.stdout_lines is defined else 'N/A' }}"
-          qms_running: "{{ final_qm_status.stdout_lines | select('search', 'Running') | list | length if final_qm_status.stdout_lines is defined else 0 }}"
-          timestamp: "{{ ansible_date_time.iso8601 }}"
+    - name: Exibir resultado do teste final
+      ansible.builtin.debug:
+        msg: "{{ msg_test.stdout_lines | default(['Teste executado.']) }}"

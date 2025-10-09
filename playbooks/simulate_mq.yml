@@ -1,0 +1,101 @@
+---
+- name: Simulação prática do IBM MQ - Criação de filas e teste de mensagens
+  hosts: node1
+  become: true
+
+  vars:
+    mq_user: mqm
+    mq_qm: QM1
+    mq_queue_in: TEST.IN
+    mq_queue_out: TEST.OUT
+    mq_dlq: DEAD.LETTER.QUEUE
+    mq_bin_path: /opt/mqm/bin
+    mq_sample_path: /opt/mqm/samp/bin
+
+  tasks:
+
+    - name: Etapa 1 - Garantir que o Queue Manager existe
+      ansible.builtin.command: "{{ mq_bin_path }}/crtmqm {{ mq_qm }}"
+      become_user: "{{ mq_user }}"
+      args:
+        creates: "/var/mqm/qmgrs/{{ mq_qm }}"
+      register: create_qm
+      changed_when: "'created' in create_qm.stdout or 'created' in create_qm.stderr"
+      ignore_errors: true
+
+    - name: Etapa 2 - Iniciar o Queue Manager
+      ansible.builtin.command: "{{ mq_bin_path }}/strmqm {{ mq_qm }}"
+      become_user: "{{ mq_user }}"
+      register: start_qm
+      changed_when: "'started' in start_qm.stdout or 'started' in start_qm.stderr"
+      ignore_errors: true
+
+    - name: Etapa 3 - Criar filas locais e DLQ via runmqsc
+      ansible.builtin.shell: |
+        echo "
+          DEFINE QLOCAL('{{ mq_queue_in }}') REPLACE
+          DEFINE QLOCAL('{{ mq_queue_out }}') REPLACE
+          DEFINE QLOCAL('{{ mq_dlq }}') REPLACE
+          ALTER QMGR DEADQ('{{ mq_dlq }}')
+          DISPLAY QLOCAL('{{ mq_queue_in }}')
+          DISPLAY QLOCAL('{{ mq_queue_out }}')
+          DISPLAY QLOCAL('{{ mq_dlq }}')
+          END
+        " | {{ mq_bin_path }}/runmqsc {{ mq_qm }}
+      become_user: "{{ mq_user }}"
+      register: mqsc_output
+      changed_when: "'AMQ' in mqsc_output.stdout"
+
+    - name: Exibir filas criadas
+      ansible.builtin.debug:
+        msg: "{{ mqsc_output.stdout_lines }}"
+
+    - name: Etapa 4 - Inserir mensagens de teste na fila {{ mq_queue_in }}
+      ansible.builtin.shell: |
+        echo "Mensagem de teste 1
+        Mensagem de teste 2
+        Mensagem de teste 3" | {{ mq_sample_path }}/amqsput {{ mq_queue_in }} {{ mq_qm }}
+      become_user: "{{ mq_user }}"
+      register: put_msgs
+      changed_when: true
+
+    - name: Exibir resultado do envio
+      ansible.builtin.debug:
+        msg: "{{ put_msgs.stdout_lines | default([]) }}"
+
+    - name: Etapa 5 - Ler mensagens da fila {{ mq_queue_in }}
+      ansible.builtin.command: "{{ mq_sample_path }}/amqsget {{ mq_queue_in }} {{ mq_qm }}"
+      become_user: "{{ mq_user }}"
+      register: get_msgs
+      changed_when: false
+
+    - name: Exibir mensagens lidas
+      ansible.builtin.debug:
+        msg: "{{ get_msgs.stdout_lines | default([]) }}"
+
+    - name: Etapa 6 - Exibir status do Queue Manager
+      ansible.builtin.command: "{{ mq_bin_path }}/dspmq"
+      become_user: "{{ mq_user }}"
+      register: status_qm
+      changed_when: false
+
+    - name: Exibir status final do Queue Manager
+      ansible.builtin.debug:
+        msg: "{{ status_qm.stdout_lines }}"
+
+#    - name: Etapa 7 - Parar o Queue Manager (limpeza)
+#      ansible.builtin.command: "{{ mq_bin_path }}/endmqm -i {{ mq_qm }}"
+#      become_user: "{{ mq_user }}"
+#      register: stop_qm
+#      changed_when: "'ended' in stop_qm.stdout or 'stopping' in stop_qm.stdout"
+#      ignore_errors: true
+
+#    - name: Exibir status após encerramento
+#      ansible.builtin.command: "{{ mq_bin_path }}/dspmq"
+#      become_user: "{{ mq_user }}"
+#      register: status_after
+#      changed_when: false
+
+#    - name: Exibir estado final
+#      ansible.builtin.debug:
+#        msg: "{{ status_after.stdout_lines }}"

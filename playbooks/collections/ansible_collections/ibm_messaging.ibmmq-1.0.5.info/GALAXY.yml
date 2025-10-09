@@ -1,8 +1,0 @@
-download_url: https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/artifacts/ibm_messaging-ibmmq-1.0.5.tar.gz
-format_version: 1.0.0
-name: ibmmq
-namespace: ibm_messaging
-server: https://galaxy.ansible.com/api/
-signatures: []
-version: 1.0.5
-version_url: /api/v3/plugin/ansible/content/published/collections/index/ibm_messaging/ibmmq/versions/1.0.5/

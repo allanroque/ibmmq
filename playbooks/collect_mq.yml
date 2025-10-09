@@ -1,0 +1,123 @@
+---
+- name: Coleta de informações do ambiente IBM MQ
+  hosts: node1
+  become: true
+
+  vars:
+    mq_user: mqm
+    mq_qm: QM1
+    mq_bin_path: /opt/mqm/bin
+
+  tasks:
+
+    - name: Coletar informações do sistema operacional
+      ansible.builtin.setup:
+        gather_subset:
+          - hardware
+          - network
+          - virtual
+          - system
+          - distribution
+          - kernel
+      register: system_info
+
+    - name: Coletar versão do IBM MQ
+      ansible.builtin.command: "{{ mq_bin_path }}/dspmqver"
+      become_user: "{{ mq_user }}"
+      register: mqver
+      changed_when: false
+
+    - name: Listar Queue Managers disponíveis
+      ansible.builtin.command: "{{ mq_bin_path }}/dspmq"
+      become_user: "{{ mq_user }}"
+      register: qmgrs
+      changed_when: false
+
+    - name: Garantir que o Queue Manager {{ mq_qm }} está iniciado
+      ansible.builtin.command: "{{ mq_bin_path }}/strmqm {{ mq_qm }}"
+      become_user: "{{ mq_user }}"
+      register: start_qm
+      failed_when: false
+      changed_when: "'started' in start_qm.stdout or 'running' in start_qm.stdout"
+
+    - name: Listar filas locais do Queue Manager {{ mq_qm }}
+      ansible.builtin.shell: |
+        echo "DISPLAY QLOCAL(*)" | {{ mq_bin_path }}/runmqsc {{ mq_qm }}
+      become_user: "{{ mq_user }}"
+      register: queues
+      changed_when: false
+      ignore_errors: true
+
+    - name: Verificar listeners ativos
+      ansible.builtin.shell: |
+        echo "DISPLAY LISTENER(*)" | {{ mq_bin_path }}/runmqsc {{ mq_qm }}
+      become_user: "{{ mq_user }}"
+      register: listeners
+      changed_when: false
+      ignore_errors: true
+
+    - name: Verificar canais ativos
+      ansible.builtin.shell: |
+        echo "DISPLAY CHSTATUS(*)" | {{ mq_bin_path }}/runmqsc {{ mq_qm }}
+      become_user: "{{ mq_user }}"
+      register: channels
+      changed_when: false
+      ignore_errors: true
+
+    - name: Verificar status do Queue Manager {{ mq_qm }}
+      ansible.builtin.command: "{{ mq_bin_path }}/dspmq -m {{ mq_qm }}"
+      become_user: "{{ mq_user }}"
+      register: qmgr_status
+      changed_when: false
+      ignore_errors: true
+
+    - name: Montar relatório final consolidado
+      ansible.builtin.set_fact:
+        mq_report: |
+          ================================
+          RELATÓRIO DE AMBIENTE IBM MQ
+          ================================
+
+          [SISTEMA OPERACIONAL]
+          Hostname: {{ system_info.ansible_facts.ansible_hostname }}
+          Distribuição: {{ system_info.ansible_facts.ansible_distribution }} {{ system_info.ansible_facts.ansible_distribution_version }}
+          Kernel: {{ system_info.ansible_facts.ansible_kernel }}
+          Arquitetura: {{ system_info.ansible_facts.ansible_architecture }}
+          CPU(s): {{ system_info.ansible_facts.ansible_processor_vcpus }}
+          Memória Total: {{ (system_info.ansible_facts.ansible_memtotal_mb / 1024) | round(2) }} GB
+          Virtualização: {{ system_info.ansible_facts.ansible_virtualization_type | default('n/a') }}
+
+          [VERSÃO DO IBM MQ]
+          {{ mqver.stdout | trim }}
+
+          [QUEUE MANAGERS]
+          {{ qmgrs.stdout | trim }}
+
+          [STATUS DO QUEUE MANAGER]
+          {{ qmgr_status.stdout | trim }}
+
+          [FILAS LOCAIS]
+          {% if 'AMQ' in queues.stdout %}
+          {{ queues.stdout | regex_findall('QUEUE\\(([^)]+)\\)') | join(', ') }}
+          {% else %}
+          Nenhuma fila listada ou QM não iniciado.
+          {% endif %}
+
+          [LISTENERS]
+          {% if 'LISTENER' in listeners.stdout %}
+          {{ listeners.stdout | regex_findall('LISTENER\\(([^)]+)\\)') | join(', ') }}
+          {% else %}
+          Nenhum listener encontrado.
+          {% endif %}
+
+          [CANAIS]
+          {% if 'CHANNEL' in channels.stdout %}
+          {{ channels.stdout | regex_findall('CHANNEL\\(([^)]+)\\)') | join(', ') }}
+          {% else %}
+          Nenhum canal ativo.
+          {% endif %}
+      no_log: false
+
+    - name: Exibir relatório consolidado
+      ansible.builtin.debug:
+        msg: "{{ mq_report }}"

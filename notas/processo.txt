@@ -6,3 +6,12 @@
 4 - consolidacao
 5 - atualizacao
 6 - validacao e teste
+
+
+2. Ciclo de vida típico de um Queue Manager
+crtmqm QM1 → cria o QM (estrutura e metadados)
+strmqm QM1 → inicia
+runmqsc QM1 → configura filas, canais, listeners, etc.
+dspmq → Verificar o status de todos os QMs
+endmqm QM1 → para o QM
+strmqm QM1 → reinicia quando quiser

@@ -1,0 +1,91 @@
+---
+- name: Reset completo do ambiente IBM MQ (para simulação do zero)
+  hosts: node1
+  become: true
+  vars:
+    mq_user: mqm
+    mq_group: mqm
+    mq_paths:
+      - /opt/mqm
+      - /var/mqm
+      - /home/mqm/IBM_MQ
+      - /home/mqm/mqm.log
+      - /tmp/mq_backup*
+      - /tmp/mq_collect*
+      - /tmp/mq_update*
+      - /tmp/mq_*.tar.gz
+      - /tmp/MQ*
+      - /etc/systemd/system/mqm.service
+
+    mq_packages:
+      - MQSeries*
+      - gskcrypt*
+      - gsksit*
+
+  tasks:
+
+    - name: Parar todos os Queue Managers se existirem
+      ansible.builtin.shell: |
+        if [ -x /opt/mqm/bin/dspmq ]; then
+          for qm in $(/opt/mqm/bin/dspmq | awk '{print $1}' | sed 's/QMNAME(//;s/)//'); do
+            echo "Encerrando $qm..."
+            /opt/mqm/bin/endmqm -i $qm || true
+          done
+        fi
+      ignore_errors: true
+
+    - name: Parar listeners e processos MQ remanescentes
+      ansible.builtin.shell: |
+        pkill -f amq || true
+        pkill -f runmqlsr || true
+      ignore_errors: true
+
+    - name: Remover pacotes IBM MQ
+      ansible.builtin.dnf:
+        name: "{{ mq_packages }}"
+        state: absent
+      ignore_errors: true
+
+    - name: Remover diretórios e arquivos do MQ
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop: "{{ mq_paths }}"
+      ignore_errors: true
+
+    - name: Remover usuário mqm (se existir)
+      ansible.builtin.user:
+        name: "{{ mq_user }}"
+        state: absent
+        remove: yes
+      ignore_errors: true
+
+    - name: Remover grupo mqm (se existir)
+      ansible.builtin.group:
+        name: "{{ mq_group }}"
+        state: absent
+      ignore_errors: true
+
+    - name: Limpar caches e arquivos temporários
+      ansible.builtin.shell: |
+        rm -rf /root/.ansible/tmp/*
+        rm -rf /home/*/.ansible/tmp/*
+        rm -rf /var/tmp/*
+        rm -rf /tmp/*
+      args:
+        warn: false
+      ignore_errors: true
+
+    - name: Verificar se tudo foi removido
+      ansible.builtin.shell: |
+        echo "Diretórios residuais:"
+        ls -ld /opt/mqm /var/mqm 2>/dev/null || echo "Nenhum encontrado."
+        echo
+        echo "Pacotes MQ instalados:"
+        rpm -qa | grep MQSeries || echo "Nenhum pacote MQ instalado."
+      register: check_cleanup
+      changed_when: false
+
+    - name: Exibir resultado da limpeza
+      ansible.builtin.debug:
+        msg: "{{ check_cleanup.stdout_lines }}"

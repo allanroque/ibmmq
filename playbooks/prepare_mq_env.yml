@@ -1,0 +1,83 @@
+---
+- name: Preparar ambiente base para IBM MQ (usuário, diretórios e pacotes)
+  hosts: mq
+  become: true
+
+  vars:
+    mq_user: mqm
+    mq_group: mqm
+    mq_home: /home/mqm
+    mq_base_dir: /opt/mqm
+    mq_install_dir: "{{ mq_home }}/IBM_MQ"
+
+    # Caminhos locais dos pacotes
+    mq_pkg_93_local: "/Users/aroque/Documents/redhat/ansible/projetos/9.3.0.0-IBM-MQTRIAL-LinuxX64.tar.gz"
+    mq_pkg_94_local: "/Users/aroque/Documents/redhat/ansible/projetos/9.4.0.10-IBM-MQTRIAL-LinuxX64.tar.gz"
+
+    # Caminhos de destino no servidor
+    mq_pkg_93_remote: "{{ mq_install_dir }}/9.3.0.0-IBM-MQTRIAL-LinuxX64.tar.gz"
+    mq_pkg_94_remote: "{{ mq_install_dir }}/9.4.0.10-IBM-MQTRIAL-LinuxX64.tar.gz"
+
+  tasks:
+
+    - name: Criar grupo mqm
+      ansible.builtin.group:
+        name: "{{ mq_group }}"
+        state: present
+
+    - name: Criar usuário mqm
+      ansible.builtin.user:
+        name: "{{ mq_user }}"
+        group: "{{ mq_group }}"
+        home: "{{ mq_home }}"
+        create_home: yes
+        shell: /bin/bash
+        state: present
+
+    - name: Criar diretórios base e de instalação
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ mq_user }}"
+        group: "{{ mq_group }}"
+        mode: '0755'
+      loop:
+        - "{{ mq_base_dir }}"
+        - "{{ mq_install_dir }}"
+
+    - name: Verificar se o pacote MQ 9.3 já está no servidor
+      ansible.builtin.stat:
+        path: "{{ mq_pkg_93_remote }}"
+      register: pkg93
+
+    - name: Copiar pacote MQ 9.3 para o servidor (se necessário)
+      ansible.builtin.copy:
+        src: "{{ mq_pkg_93_local }}"
+        dest: "{{ mq_pkg_93_remote }}"
+        owner: "{{ mq_user }}"
+        group: "{{ mq_group }}"
+        mode: '0644'
+      when: not pkg93.stat.exists
+
+    - name: Verificar se o pacote MQ 9.4 já está no servidor
+      ansible.builtin.stat:
+        path: "{{ mq_pkg_94_remote }}"
+      register: pkg94
+
+    - name: Copiar pacote MQ 9.4 para o servidor (se necessário)
+      ansible.builtin.copy:
+        src: "{{ mq_pkg_94_local }}"
+        dest: "{{ mq_pkg_94_remote }}"
+        owner: "{{ mq_user }}"
+        group: "{{ mq_group }}"
+        mode: '0644'
+      when: not pkg94.stat.exists
+
+    - name: Exibir resultado final da preparação
+      ansible.builtin.debug:
+        msg:
+          - "Usuário MQM criado em {{ mq_home }}"
+          - "Diretórios preparados: {{ mq_base_dir }}, {{ mq_install_dir }}"
+          - "Pacotes disponíveis:"
+          - " - IBM MQ 9.3: {{ 'Presente' if pkg93.stat.exists else 'Copiado agora' }}"
+          - " - IBM MQ 9.4: {{ 'Presente' if pkg94.stat.exists else 'Copiado agora' }}"
