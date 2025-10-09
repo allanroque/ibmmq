@@ -193,3 +193,12 @@
     - name: Exibir resultado do teste final
       ansible.builtin.debug:
         msg: "{{ msg_test.stdout_lines | default(['Teste executado.']) }}"
+
+    - name: Verificar versão instalada
+      ansible.builtin.command: /opt/mqm/bin/dspmqver
+      register: mqver
+      changed_when: false
+
+    - name: Exibir versão instalada do IBM MQ
+      ansible.builtin.debug:
+        msg: "{{ mqver.stdout_lines }}"
