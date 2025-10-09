@@ -1,6 +1,6 @@
 ---
 - name: Reset completo do ambiente IBM MQ (para simulação do zero)
-  hosts: node1
+  hosts: all
   become: true
   vars:
     mq_user: mqm
