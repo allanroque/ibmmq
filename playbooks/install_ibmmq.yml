@@ -2,14 +2,14 @@
 - name: Instalar IBM MQ 9.3 (instalação padrão IBM)
   hosts: all
   become: true
+
   vars:
-    mq_version: "9.3.0"
-    mq_user: "mqm"
-    mq_group: "mqm"
-    mq_base_dir: "/opt/mqm"
-    mq_home: "/home/mqm"
+    mq_user: mqm
+    mq_group: mqm
+    mq_base_dir: /opt/mqm
+    mq_home: /home/mqm
     mq_install_dir: "{{ mq_home }}/IBM_MQ"
-    mq_pkg_local: "9.3.0.0-IBM-MQTRIAL-LinuxX64.tar.gz"
+    mq_pkg_local: "{{ mq_install_dir }}/9.3.0.0-IBM-MQTRIAL-LinuxX64.tar.gz"
 
     mq_rpms_required:
       - MQSeriesRuntime-9.3.0-0.x86_64.rpm
@@ -22,7 +22,11 @@
 
   tasks:
 
-    - name: Instalar dependências básicas
+    - name: Validar conectividade SSH
+      ansible.builtin.wait_for_connection:
+        timeout: 10
+
+    - name: Garantir dependências básicas instaladas
       ansible.builtin.dnf:
         name:
           - gcc
@@ -33,21 +37,7 @@
           - glibc
         state: present
 
-    - name: Criar grupo mqm
-      ansible.builtin.group:
-        name: "{{ mq_group }}"
-        state: present
-
-    - name: Criar usuário mqm
-      ansible.builtin.user:
-        name: "{{ mq_user }}"
-        group: "{{ mq_group }}"
-        home: "{{ mq_home }}"
-        create_home: yes
-        shell: /bin/bash
-        state: present
-
-    - name: Criar diretórios base e de instalação
+    - name: Criar diretórios base (se ainda não existirem)
       ansible.builtin.file:
         path: "{{ item }}"
         state: directory
@@ -58,27 +48,14 @@
         - "{{ mq_base_dir }}"
         - "{{ mq_install_dir }}"
 
-    - name: Verificar se o pacote do IBM MQ já existe no servidor
-      ansible.builtin.stat:
-        path: "{{ mq_install_dir }}/ibmmq.tar.gz"
-      register: file_exists
-
-    - name: Copiar pacote do IBM MQ para o servidor (se necessário)
-      ansible.builtin.copy:
-        src: "{{ mq_pkg_local }}"
-        dest: "{{ mq_install_dir }}/ibmmq.tar.gz"
-        mode: '0644'
-        owner: "{{ mq_user }}"
-        group: "{{ mq_group }}"
-      when: not file_exists.stat.exists
-
-    - name: Extrair pacote IBM MQ (se ainda não extraído)
+    - name: Extrair pacote IBM MQ (caso ainda não extraído)
       ansible.builtin.unarchive:
-        src: "{{ mq_install_dir }}/ibmmq.tar.gz"
+        src: "{{ mq_pkg_local }}"
         dest: "{{ mq_install_dir }}"
         remote_src: true
         owner: "{{ mq_user }}"
         group: "{{ mq_group }}"
+      args:
         creates: "{{ mq_install_dir }}/MQServer"
 
     - name: Garantir permissões adequadas para instalação
@@ -89,25 +66,26 @@
         group: root
         mode: '0755'
 
-    - name: Aceitar licença IBM MQ (pré-instalação - mqlicense.sh)
+    - name: Aceitar licença IBM MQ antes da instalação
       ansible.builtin.command: "./mqlicense.sh -accept"
       args:
         chdir: "{{ mq_install_dir }}/MQServer"
       changed_when: false
       ignore_errors: yes
 
-    - name: Instalar pacotes essenciais do IBM MQ (ordem oficial)
+    - name: Instalar pacotes essenciais do IBM MQ
       ansible.builtin.dnf:
         name: "{{ mq_install_dir }}/MQServer/{{ item }}"
         state: present
         disable_gpg_check: true
       loop: "{{ mq_rpms_required }}"
 
-    - name: Aceitar licença IBM MQ (pós-instalação)
+    - name: Aceitar licença IBM MQ pós-instalação
       ansible.builtin.command: "./mqlicense -accept"
       args:
         chdir: "/opt/mqm/bin"
       changed_when: false
+      ignore_errors: yes
 
     - name: Verificar versão instalada
       ansible.builtin.command: /opt/mqm/bin/dspmqver
@@ -117,19 +95,3 @@
     - name: Exibir versão instalada do IBM MQ
       ansible.builtin.debug:
         msg: "{{ mqver.stdout_lines }}"
-
-    - name: Configurar variáveis de ambiente permanentes do IBM MQ
-      ansible.builtin.blockinfile:
-        path: "/home/{{ mq_user }}/.bash_profile"
-        marker: "# {mark} ANSIBLE MANAGED BLOCK - IBM MQ environment"
-        block: |
-          # IBM MQ environment
-          export PATH=$PATH:/opt/mqm/bin
-          export LD_LIBRARY_PATH=/opt/mqm/lib64:$LD_LIBRARY_PATH
-
-    - name: Ajustar permissões do .bash_profile do mqm
-      ansible.builtin.file:
-        path: "/home/{{ mq_user }}/.bash_profile"
-        owner: "{{ mq_user }}"
-        group: "{{ mq_group }}"
-        mode: '0644'
