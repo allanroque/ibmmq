@@ -118,6 +118,7 @@
           {% endif %}
       no_log: false
 
-    - name: Exibir relatório consolidado
+    - name: Exibir relatório consolidado formatado
       ansible.builtin.debug:
-        var: mq_report
+        msg: |
+          {{ mq_report }}
