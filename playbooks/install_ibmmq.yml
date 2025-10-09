@@ -35,6 +35,7 @@
           - pam
           - libstdc++
           - glibc
+          - acl
         state: present
 
     - name: Criar diretórios base (se ainda não existirem)
