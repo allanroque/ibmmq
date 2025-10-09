@@ -88,14 +88,23 @@
         path: "{{ mq_install_dir }}/ibmmq_9.4.tar.gz"
       register: pkg_exists
 
-    - name: Copiar pacote IBM MQ 9.4 (se necessário)
-      ansible.builtin.copy:
-        src: "{{ mq_pkg_local }}"
-        dest: "{{ mq_install_dir }}/ibmmq_9.4.tar.gz"
-        mode: '0644'
-        owner: "{{ mq_user }}"
-        group: "{{ mq_group }}"
-      when: not pkg_exists.stat.exists
+    - name: Verificar se o pacote MQ 9.4 já está disponível localmente ou remotamente
+      block:
+        - name: Copiar pacote IBM MQ 9.4 (se necessário, apenas se não existir)
+          ansible.builtin.copy:
+            src: "{{ mq_pkg_local }}"
+            dest: "{{ mq_install_dir }}/ibmmq_9.4.tar.gz"
+            mode: '0644'
+            owner: "{{ mq_user }}"
+            group: "{{ mq_group }}"
+          when:
+            - not pkg_exists.stat.exists
+            - mq_pkg_local is defined
+            - mq_pkg_local | length > 0
+      rescue:
+        - name: Pacote já existente no servidor — prosseguir
+          ansible.builtin.debug:
+            msg: "Pacote já está presente em {{ mq_install_dir }}/ibmmq_9.4.tar.gz, não foi copiado."
 
     - name: Extrair pacote IBM MQ 9.4 (se ainda não extraído)
       ansible.builtin.unarchive:
