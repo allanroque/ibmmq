@@ -1,6 +1,6 @@
 ---
 - name: Atualização controlada do IBM MQ para versão 9.4
-  hosts: node2
+  hosts: all
   become: true
 
   vars:
