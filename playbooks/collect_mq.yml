@@ -118,7 +118,76 @@
           {% endif %}
       no_log: false
 
-    - name: Exibir relatório consolidado formatado
+    - name: Exibir cabeçalho do relatório
       ansible.builtin.debug:
         msg: |
-          {{ mq_report | indent(0) }}
+          ================================
+          RELATÓRIO DE AMBIENTE IBM MQ
+          ================================
+
+    - name: Exibir informações do sistema operacional
+      ansible.builtin.debug:
+        msg: |
+          [SISTEMA OPERACIONAL]
+          Hostname: {{ system_info.ansible_facts.ansible_hostname }}
+          Distribuição: {{ system_info.ansible_facts.ansible_distribution }} {{ system_info.ansible_facts.ansible_distribution_version }}
+          Kernel: {{ system_info.ansible_facts.ansible_kernel }}
+          Arquitetura: {{ system_info.ansible_facts.ansible_architecture }}
+          CPU(s): {{ system_info.ansible_facts.ansible_processor_vcpus }}
+          Memória Total: {{ (system_info.ansible_facts.ansible_memtotal_mb / 1024) | round(2) }} GB
+          Virtualização: {{ system_info.ansible_facts.ansible_virtualization_type | default('n/a') }}
+
+    - name: Exibir versão do IBM MQ
+      ansible.builtin.debug:
+        msg: |
+          [VERSÃO DO IBM MQ]
+          {{ mqver.stdout | trim }}
+
+    - name: Exibir queue managers disponíveis
+      ansible.builtin.debug:
+        msg: |
+          [QUEUE MANAGERS]
+          {{ qmgrs.stdout | trim | default('Nenhum QM detectado.') }}
+
+    - name: Exibir status do Queue Manager
+      ansible.builtin.debug:
+        msg: |
+          [STATUS DO QUEUE MANAGER]
+          {{ qmgr_status.stdout | trim | default('Indisponível') }}
+
+    - name: Exibir filas locais
+      ansible.builtin.debug:
+        msg: |
+          [FILAS LOCAIS]
+          {% if 'AMQ' in queues.stdout %}
+          {{ queues.stdout | regex_findall('QUEUE\\(([^)]+)\\)') | join('\n') }}
+          {% else %}
+          Nenhuma fila listada ou QM não iniciado.
+          {% endif %}
+
+    - name: Exibir listeners
+      ansible.builtin.debug:
+        msg: |
+          [LISTENERS]
+          {% if 'LISTENER' in listeners.stdout %}
+          {{ listeners.stdout | regex_findall('LISTENER\\(([^)]+)\\)') | join('\n') }}
+          {% else %}
+          Nenhum listener encontrado.
+          {% endif %}
+
+    - name: Exibir canais
+      ansible.builtin.debug:
+        msg: |
+          [CANAIS]
+          {% if 'CHANNEL' in channels.stdout %}
+          {{ channels.stdout | regex_findall('CHANNEL\\(([^)]+)\\)') | join('\n') }}
+          {% else %}
+          Nenhum canal ativo.
+          {% endif %}
+
+    - name: Encerramento do relatório
+      ansible.builtin.debug:
+        msg: |
+          ================================
+          FIM DO RELATÓRIO
+          ================================
