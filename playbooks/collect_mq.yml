@@ -121,4 +121,7 @@
     - name: Exibir relatório consolidado formatado
       ansible.builtin.debug:
         msg: |
+          {% filter indent(width=0, indentfirst=False) -%}
           {{ mq_report }}
+          {%- endfilter %}
+
