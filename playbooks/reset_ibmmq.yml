@@ -8,12 +8,10 @@
     mq_paths:
       - /opt/mqm
       - /var/mqm
-      - /home/mqm/IBM_MQ
       - /home/mqm/mqm.log
       - /tmp/mq_backup*
       - /tmp/mq_collect*
       - /tmp/mq_update*
-      - /tmp/mq_*.tar.gz
       - /tmp/MQ*
       - /etc/systemd/system/mqm.service
 
