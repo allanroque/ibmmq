@@ -105,6 +105,7 @@
         owner: "{{ mq_user }}"
         group: "{{ mq_group }}"
         creates: "{{ mq_install_dir }}/MQServer"
+      when: not pkg_exists.stat.exists
 
     - name: Garantir permissões adequadas para instalação
       ansible.builtin.file:
