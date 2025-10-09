@@ -208,9 +208,9 @@
       changed_when: false
       ignore_errors: true
 
-    - name: Exibir resultado do teste final
-      ansible.builtin.debug:
-        msg: "{{ msg_test.stdout_lines | default(['Teste executado.']) }}"
+#    - name: Exibir resultado do teste final
+#      ansible.builtin.debug:
+#        msg: "{{ msg_test.stdout_lines | default(['Teste executado.']) }}"
 
     - name: Verificar versão instalada
       ansible.builtin.command: /opt/mqm/bin/dspmqver
