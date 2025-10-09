@@ -44,8 +44,11 @@
     - name: Bloquear execução se versão do RHEL < 8.8
       ansible.builtin.assert:
         that:
-          - "'release 8.8' in rhel_version.stdout or 'release 9' in rhel_version.stdout"
-        fail_msg: "❌ A versão do sistema é inferior a RHEL 8.8. O IBM MQ 9.4 requer RHEL 8.8 ou superior."
+          - "'release 8.8' in rhel_version.stdout
+             or 'release 8.9' in rhel_version.stdout
+             or 'release 9' in rhel_version.stdout
+             or 'release 10' in rhel_version.stdout"
+        fail_msg: "XXXXX A versão do sistema é inferior a RHEL 8.8. O IBM MQ 9.4 requer RHEL 8.8 ou superior."
 
     - name: Etapa 1 - Exibir Queue Managers ativos
       ansible.builtin.command: "{{ mq_bin_path }}/dspmq"
