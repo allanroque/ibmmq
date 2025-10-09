@@ -106,16 +106,34 @@
           ansible.builtin.debug:
             msg: "Pacote já está presente em {{ mq_install_dir }}/ibmmq_9.4.tar.gz, não foi copiado."
 
-    - name: Extrair pacote IBM MQ 9.4 (se ainda não extraído)
+    - name: Detectar versão atual do IBM MQ instalada
+      ansible.builtin.shell: |
+        if [ -x /opt/mqm/bin/dspmqver ]; then
+          /opt/mqm/bin/dspmqver | grep -E '^Version'
+        else
+          echo "Versão não detectada"
+        fi
+      register: mq_current_ver
+      changed_when: false
+      ignore_errors: true
+
+    - name: Exibir versão atual detectada
+      ansible.builtin.debug:
+        msg: "{{ mq_current_ver.stdout | default('Versão não encontrada') }}"
+
+    - name: Extrair pacote IBM MQ 9.4 (somente se versão atual for 9.3)
       ansible.builtin.unarchive:
-        src: "{{ mq_install_dir }}/ibmmq_9.4.tar.gz"
+        src: "{{ mq_install_dir }}/9.4.0.10-IBM-MQTRIAL-LinuxX64.tar.gz"
         dest: "{{ mq_install_dir }}"
         remote_src: true
         owner: "{{ mq_user }}"
         group: "{{ mq_group }}"
-        creates: "{{ mq_install_dir }}/MQServer"
-      when: not pkg_exists.stat.exists
-
+        extra_opts:
+          - "--overwrite"
+      when:
+        - "'9.3' in mq_current_ver.stdout"
+      register: extract_mq
+      
     - name: Garantir permissões adequadas para instalação
       ansible.builtin.file:
         path: "{{ mq_install_dir }}"
