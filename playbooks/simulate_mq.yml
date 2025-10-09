@@ -1,6 +1,6 @@
 ---
 - name: Simulação prática do IBM MQ - Criação de filas e teste de mensagens
-  hosts: node1
+  hosts: all
   become: true
 
   vars:

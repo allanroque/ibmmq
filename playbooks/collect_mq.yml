@@ -1,6 +1,6 @@
 ---
 - name: Coleta de informações do ambiente IBM MQ
-  hosts: node1
+  hosts: all
   become: true
 
   vars:

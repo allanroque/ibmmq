@@ -1,6 +1,6 @@
 ---
 - name: Instalar IBM MQ 9.3 (instalação padrão IBM)
-  hosts: node2
+  hosts: all
   become: true
   vars:
     mq_version: "9.3.0"
