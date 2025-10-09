@@ -1,10 +1,14 @@
 ---
-- name: Coleta de visibilidade IBM MQ
-  hosts: mq_servers
+- name: Validar versao
+  hosts: all
   gather_facts: yes
   tasks:
 
-    - name: Mostrar resultado na tela
-      debug:
-        var: mq_health
+    - name: Verificar versão instalada
+      ansible.builtin.command: /opt/mqm/bin/dspmqver
+      register: mqver
+      changed_when: false
 
+    - name: Exibir versão instalada do IBM MQ
+      ansible.builtin.debug:
+        msg: "{{ mqver.stdout_lines }}"
