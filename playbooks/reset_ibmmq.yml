@@ -55,6 +55,13 @@
           - MQSeriesSamples-9.3.0-0.x86_64
           - MQSeriesMan-9.3.0-0.x86_64
           - MQSeriesSDK-9.3.0-0.x86_64
+          - MQSeriesRuntime-9.4.0-10.x86_64.rpm
+          - MQSeriesGSKit-9.4.0-10.x86_64.rpm
+          - MQSeriesServer-9.4.0-10.x86_64.rpm
+          - MQSeriesClient-9.4.0-10.x86_64.rpm
+          - MQSeriesSamples-9.4.0-10.x86_64.rpm
+          - MQSeriesMan-9.4.0-10.x86_64.rpm
+          - MQSeriesSDK-9.4.0-10.x86_64.rpm
         state: absent
       ignore_errors: true
 
