@@ -137,12 +137,14 @@
       failed_when: false
 
     - name: Garantir aceite de licença antes de criar QMGR
-      ansible.builtin.shell: |
-        if ! grep -q "AcceptLicense=Yes" /etc/opt/mqm/mqinst.ini 2>/dev/null; then
-          echo "AcceptLicense=Yes" >> /etc/opt/mqm/mqinst.ini
-        fi
-      args:
-        executable: /bin/bash
+      ansible.builtin.lineinfile:
+        path: /etc/opt/mqm/mqinst.ini
+        line: AcceptLicense=Yes
+        state: present
+        create: true
+        owner: root
+        group: root
+        mode: '0644'
       become: true
 
     - name: Validar instalação
@@ -163,8 +165,9 @@
 
     - name: Criar Queue Manager se não existir (parâmetros completos)
       ansible.builtin.command: "{{ mq_bin_path }}/crtmqm -u SYSTEM.DEAD.LETTER.QUEUE -lc -lf 4095 -lp 30 -ls 29 -q {{ qmgr_name }}"
+      args:
+        creates: "/var/mqm/qmgrs/{{ qmgr_name }}"
       when: qmgr_check.rc != 0
-      changed_when: true
       become: true
       become_user: "{{ mq_user }}"
 
