@@ -7,37 +7,22 @@
     # Caminhos e nomes padrão (ajuste conforme seu ambiente)
     repo_origin: 'http://54.196.155.119/repowmq/Windows'
     destination: "C:\\MQInstall"
-    inst_pack: "IBM_MQ_9.3_WINDOWS.zip"
-    inst_ini: "MQInstall93.ini"
-    inst_parm: "MQParms93.ini"
+    inst_pack: "9.4.4.0-IBM-MQ-Advanced-for-Developers-Win64.zip"
     inst_dir: "D:\\IBM\\MQ"
 
   tasks:
-    - name: Obter versão instalada do IBM MQ (se existir)
-      win_command: powershell.exe -NoProfile -NonInteractive -Command "dspmqver | findstr Version"
-      register: mqver_cmd
-      failed_when: false
-      changed_when: false
-
-    - name: Extrair versão instalada (se encontrada)
-      ansible.builtin.set_fact:
-        mq_version_instalada: "{{ (mqver_cmd.stdout.split(':') | last | default('') ) | trim }}"
-      when: mqver_cmd.rc == 0 and 'Version' in (mqver_cmd.stdout | default(''))
+    # (verificação de versão removida para simplificar a instalação)
 
     - name: Garantir diretório de destino existe
       ansible.windows.win_file:
         path: "{{ destination }}"
         state: directory
 
-    - name: Baixar pacotes de instalação a partir do repositório HTTP
+    - name: Baixar instalador (9.4.4.0 Developers)
       ansible.windows.win_get_url:
-        url: "{{ item.url }}"
-        dest: "{{ destination }}\\{{ item.dest }}"
+        url: "{{ repo_origin }}/{{ inst_pack }}"
+        dest: "{{ destination }}\\{{ inst_pack }}"
         force: false
-      loop:
-        - { url: "{{ repo_origin }}/MQ9.3/{{ inst_parm }}", dest: "{{ inst_parm }}" }
-        - { url: "{{ repo_origin }}/MQ9.3/{{ inst_ini }}",  dest: "{{ inst_ini }}" }
-        - { url: "{{ repo_origin }}/MQ9.3/{{ inst_pack }}", dest: "{{ inst_pack }}" }
 
     - name: Descompactar pacote de instalação
       community.windows.win_unzip:
@@ -45,38 +30,25 @@
         dest: "{{ destination }}"
         delete_archive: false
 
-    - name: Validar arquivos de instalação
-      ansible.windows.win_stat:
-        path: "{{ destination }}\\{{ item }}"
-      register: inst_files
-      loop:
-        - "{{ inst_parm }}"
-        - "{{ inst_ini }}"
+    - name: Localizar MSI do IBM MQ após extração
+      ansible.windows.win_find:
+        paths: "{{ destination }}"
+        patterns: "IBM MQ.msi"
+        recurse: true
+      register: mq_msi
 
-    - name: Falhar se arquivos de instalação não encontrados
+    - name: Falhar se MSI não encontrado
       ansible.builtin.fail:
-        msg: "Installation Parm/Response file não encontrado. Instalação interrompida."
-      when: (inst_files.results | selectattr('stat.exists','equalto', true) | list | length) < 2
+        msg: "Arquivo 'IBM MQ.msi' não encontrado após descompactar o instalador."
+      when: mq_msi.matched | default(0) | int == 0
 
     - name: Instalar IBM MQ (MSI)
       ansible.windows.win_package:
-        path: "{{ destination }}\\IBM_MQ_9.3_WINDOWS\\MQServer\\MSI\\IBM MQ.msi"
-        arguments: "/qn /norestart TRANSFORMS=\"{{ destination }}\\IBM_MQ_9.3_WINDOWS\\MQServer\\MSI\\1033.mst\" USEINI=\"{{ destination }}\\{{ inst_ini }}\" AGREETOLICENSE=\"yes\""
+        path: "{{ (mq_msi.files[0].path) | default('') }}"
+        arguments: "/qn /norestart AGREETOLICENSE=\"yes\""
         state: present
-        log_path: "{{ destination }}\\IBM_MQ_9_3_Install.log"
+        log_path: "{{ destination }}\\IBM_MQ_Install.log"
 
-    - name: Coletar versão do IBM MQ após instalação
-      win_command: powershell.exe -NoProfile -NonInteractive -Command "dspmqver"
-      register: mqver_after
-      changed_when: false
-      failed_when: false
-
-    - name: Publicar facts de versão
-      ansible.builtin.set_fact:
-        ibmmq_version_after: "{{ mqver_after.stdout | default('n/d') }}"
-
-    - name: Mostrar versão final
-      ansible.builtin.debug:
-        msg: "Versão instalada do IBM MQ: {{ ibmmq_version_after }}"
+    # (coleta de versão pós-instalação removida para evitar dependência de módulos não disponíveis)
 
 
