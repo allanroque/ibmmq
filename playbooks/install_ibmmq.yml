@@ -10,6 +10,10 @@
     mq_home: /home/mqm
     mq_install_dir: "{{ mq_home }}/IBM_MQ"
     mq_pkg_local: "{{ mq_install_dir }}/9.3.0.0-IBM-MQTRIAL-LinuxX64.tar.gz"
+    # QMGR básico
+    qmgr_name: "QM1"
+    mq_listener_port: 1414
+    mq_svrconn_channel: "SVRCONN.APP"
 
     mq_rpms_required:
       - MQSeriesRuntime-9.3.0-0.x86_64.rpm
@@ -62,7 +66,7 @@
     - name: Garantir permissões adequadas para instalação
       ansible.builtin.file:
         path: "{{ mq_install_dir }}"
-        recurse: yes
+        recurse: true
         owner: root
         group: root
         mode: '0755'
@@ -72,7 +76,7 @@
       args:
         chdir: "{{ mq_install_dir }}/MQServer"
       changed_when: false
-      ignore_errors: yes
+      failed_when: false
 
     - name: Instalar pacotes essenciais do IBM MQ
       ansible.builtin.dnf:
@@ -86,7 +90,7 @@
       args:
         chdir: "/opt/mqm/bin"
       changed_when: false
-      ignore_errors: yes
+      failed_when: false
 
     - name: Verificar versão instalada
       ansible.builtin.command: /opt/mqm/bin/dspmqver
@@ -96,3 +100,44 @@
     - name: Exibir versão instalada do IBM MQ
       ansible.builtin.debug:
         msg: "{{ mqver.stdout_lines }}"
+
+    - name: Criar Queue Manager básico se não existir
+      ansible.builtin.command: "crtmqm -q -u SYSTEM.DEAD.LETTER.QUEUE {{ qmgr_name }}"
+      args:
+        creates: "/var/mqm/qmgrs/{{ qmgr_name }}"
+      become: true
+      become_user: "{{ mq_user }}"
+
+    - name: Iniciar Queue Manager
+      ansible.builtin.command: "strmqm {{ qmgr_name }}"
+      become: true
+      become_user: "{{ mq_user }}"
+      register: strmqm_out
+      changed_when: "'AMQ' in strmqm_out.stdout or 'AMQ' in strmqm_out.stderr"
+      failed_when: false
+
+    - name: Gerar MQSC com objetos básicos do QMGR
+      ansible.builtin.copy:
+        dest: "/tmp/{{ qmgr_name }}_base.mqsc"
+        mode: '0644'
+        content: |
+          * Base definitions for {{ qmgr_name }}
+          ALTER QMGR CHLAUTH(DISABLED)
+          DEFINE CHANNEL({{ mq_svrconn_channel }}) CHLTYPE(SVRCONN) TRPTYPE(TCP) REPLACE
+          DEFINE LISTENER(LISTENER.TCP) TRPTYPE(TCP) CONTROL(QMGR) PORT({{ mq_listener_port }}) REPLACE
+          START LISTENER(LISTENER.TCP)
+          REFRESH SECURITY TYPE(CONNAUTH)
+
+    - name: Aplicar MQSC (objetos básicos)
+      ansible.builtin.shell: "/opt/mqm/bin/runmqsc {{ qmgr_name }} < /tmp/{{ qmgr_name }}_base.mqsc"
+      args:
+        executable: /bin/bash
+      become: true
+      become_user: "{{ mq_user }}"
+      register: mqsc_apply
+      changed_when: "mqsc_apply.rc == 0"
+      failed_when: false
+
+    - name: Mostrar saída da aplicação MQSC
+      ansible.builtin.debug:
+        var: mqsc_apply.stdout
