@@ -8,6 +8,7 @@
     mq_paths:
       - /opt/mqm
       - /var/mqm
+      - /home/mqm/IBM_MQ
       - /home/mqm/mqm.log
       - /tmp/mq_backup*
       - /tmp/mq_collect*
