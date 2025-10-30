@@ -102,8 +102,10 @@
         remote_src: true
         owner: "{{ mq_user }}"
         group: "{{ mq_group }}"
+        extra_opts:
+          - "--overwrite"
       args:
-        creates: "{{ mq_install_dir }}/MQServer"
+        creates: "{{ mq_install_dir }}/MQServer/MQSeriesRuntime-9.3.0-0.x86_64.rpm"
 
     - name: Garantir permissões adequadas para instalação
       ansible.builtin.file:
@@ -134,10 +136,24 @@
       changed_when: false
       failed_when: false
 
+    - name: Verificar existência do binário dspmqver
+      ansible.builtin.stat:
+        path: "{{ mq_bin_path }}/dspmqver"
+      register: dspmqver_bin
+
     - name: Verificar versão instalada
       ansible.builtin.command: "{{ mq_bin_path }}/dspmqver"
       register: mqver
       changed_when: false
+      when: dspmqver_bin.stat.exists | default(false)
+
+    - name: Falhar se dspmqver não foi encontrado após instalação
+      ansible.builtin.fail:
+        msg: |
+          dspmqver não encontrado em {{ mq_bin_path }}.
+          A instalação dos pacotes IBM MQ pode não ter sido aplicada.
+          Verifique os RPMs em {{ mq_install_dir }}/MQServer/ e reinstale se necessário.
+      when: not (dspmqver_bin.stat.exists | default(false))
 
     - name: Exibir versão instalada do IBM MQ
       ansible.builtin.debug:
