@@ -139,21 +139,15 @@
 
     - name: Exibir versão do IBM MQ
       ansible.builtin.debug:
-        msg: |
-          [VERSÃO DO IBM MQ]
-          {{ mqver.stdout | trim }}
+        msg: "{{ mqver.stdout_lines }}"
 
     - name: Exibir queue managers disponíveis
       ansible.builtin.debug:
-        msg: |
-          [QUEUE MANAGERS]
-          {{ qmgrs.stdout | trim | default('Nenhum QM detectado.') }}
+        msg: "{{ qmgrs.stdout_lines | default(['Nenhum QM detectado.']) }}"
 
     - name: Exibir status do Queue Manager
       ansible.builtin.debug:
-        msg: |
-          [STATUS DO QUEUE MANAGER]
-          {{ qmgr_status.stdout | trim | default('Indisponível') }}
+        msg: "{{ qmgr_status.stdout_lines | default(['Indisponível']) }}"
 
     - name: Exibir filas locais
       ansible.builtin.debug:
@@ -165,6 +159,10 @@
           Nenhuma fila listada ou QM não iniciado.
           {% endif %}
 
+    - name: Mostrar saída bruta da consulta de filas (MQSC)
+      ansible.builtin.debug:
+        msg: "{{ queues.stdout_lines | default(['Sem saída']) }}"
+
     - name: Exibir listeners
       ansible.builtin.debug:
         msg: |
@@ -175,6 +173,10 @@
           Nenhum listener encontrado.
           {% endif %}
 
+    - name: Mostrar saída bruta da consulta de listeners (MQSC)
+      ansible.builtin.debug:
+        msg: "{{ listeners.stdout_lines | default(['Sem saída']) }}"
+
     - name: Exibir canais
       ansible.builtin.debug:
         msg: |
@@ -184,6 +186,10 @@
           {% else %}
           Nenhum canal ativo.
           {% endif %}
+
+    - name: Mostrar saída bruta da consulta de canais (MQSC)
+      ansible.builtin.debug:
+        msg: "{{ channels.stdout_lines | default(['Sem saída']) }}"
 
     - name: Encerramento do relatório
       ansible.builtin.debug:

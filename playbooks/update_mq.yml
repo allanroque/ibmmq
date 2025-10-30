@@ -79,6 +79,36 @@
         cp -a /var/mqm/qmgrs {{ mq_backup_dir }}/ || true
       changed_when: true
 
+    - name: Etapa 3.1 - Efetuar dump de configuração (Backup MQSC) de cada Queue Manager
+      ansible.builtin.shell: |
+        set -e
+        mkdir -p {{ mq_backup_dir }}
+        # Descobrir QMs existentes (ativos ou não)
+        qms=$({{ mq_bin_path }}/dspmq 2>/dev/null | awk '{print $1}' | sed 's/QMNAME(//;s/)//' || true)
+        if [ -z "$qms" ]; then
+          # Tentativa alternativa: listar diretórios de qmgrs quando dspmq não retorna
+          qms=$(ls -1 /var/mqm/qmgrs 2>/dev/null || true)
+        fi
+        if [ -z "$qms" ]; then
+          echo "Nenhum QM encontrado para efetuar dump."
+          exit 0
+        fi
+        for qm in $qms; do
+          out="{{ mq_backup_dir }}/$qm.(CHG).mqsc"
+          echo "Gerando dump de configuração do QM $qm em $out" 
+          {{ mq_bin_path }}/dmpmqcfg -m "$qm" -a -o 1line > "$out" 2>&1 || true
+          echo "Concluído: $out"
+        done
+      become: true
+      become_user: "{{ mq_user }}"
+      register: qmgr_cfg_dump
+      changed_when: true
+      ignore_errors: true
+
+    - name: Exibir arquivos de dump MQSC gerados
+      ansible.builtin.debug:
+        msg: "{{ qmgr_cfg_dump.stdout_lines | default(['Nenhum dump gerado.']) }}"
+
     - name: Exibir local do backup
       ansible.builtin.debug:
         msg: "Backup armazenado em {{ mq_backup_dir }}"
@@ -199,6 +229,19 @@
       register: qmgr_status
       changed_when: false
       ignore_errors: true
+
+    - name: "Etapa 8.1 - Verificação final: hostname, estado dos QMs e versão"
+      ansible.builtin.shell: |
+        hostname && {{ mq_bin_path }}/dspmq && {{ mq_bin_path }}/dspmqver -f2
+      become: true
+      become_user: "{{ mq_user }}"
+      register: verify_status
+      changed_when: false
+      ignore_errors: true
+
+    - name: Exibir verificação final
+      ansible.builtin.debug:
+        msg: "{{ verify_status.stdout_lines | default(['Verificação não disponível.']) }}"
 
     - name: Etapa 8 - Testar fila e conexão pós-upgrade
       ansible.builtin.shell: |
