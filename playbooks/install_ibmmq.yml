@@ -95,17 +95,18 @@
       ansible.builtin.command: ./mqlicense.sh -accept
       args:
         chdir: "{{ mq_install_dir }}/MQServer"
+      become: true
       become_user: root
       register: license_accept
       changed_when: "'Agreement' in license_accept.stdout or 'accept' in license_accept.stdout"
       failed_when: false
 
-    - name: Instalar pacotes do IBM MQ
-      ansible.builtin.shell: |
-        dnf -y install {{ mq_install_dir }}/MQServer/{{ item }} --nogpgcheck
+    - name: Instalar pacotes essenciais do IBM MQ
+      ansible.builtin.dnf:
+        name: "{{ mq_install_dir }}/MQServer/{{ item }}"
+        state: present
+        disable_gpg_check: true
       loop: "{{ mq_rpms_required }}"
-      register: mq_install_result
-      failed_when: mq_install_result.rc != 0
 
     - name: Verificar se dspmqver existe
       ansible.builtin.stat:
@@ -113,6 +114,7 @@
       register: dspmqver_bin
 
     - name: Forçar reextração e reinstalação se dspmqver ausente
+      when: not dspmqver_bin.stat.exists
       block:
         - name: Limpar MQServer e /opt/mqm incompletos
           ansible.builtin.file:
@@ -126,7 +128,6 @@
             src: "{{ mq_install_dir }}/download/{{ mq_fix_filename }}"
             dest: "{{ mq_install_dir }}"
             remote_src: true
-      when: not dspmqver_bin.stat.exists
 
     - name: Aceitar licença IBM MQ pós-instalação
       ansible.builtin.command: "./mqlicense -accept"
