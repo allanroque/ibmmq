@@ -105,7 +105,19 @@
         extra_opts:
           - "--overwrite"
       args:
-        creates: "{{ mq_install_dir }}/MQServer/MQSeriesRuntime-9.3.0-0.x86_64.rpm"
+        creates: "{{ mq_install_dir }}/MQServer"
+
+    - name: Validar extração — verificar RPMs presentes em MQServer
+      ansible.builtin.find:
+        paths: "{{ mq_install_dir }}/MQServer"
+        patterns: "MQSeries*.rpm"
+        file_type: file
+      register: mqserver_rpms
+
+    - name: Falhar se RPMs do MQ não foram extraídos
+      ansible.builtin.fail:
+        msg: "Nenhum RPM encontrado em {{ mq_install_dir }}/MQServer. A extração pode ter falhado."
+      when: mqserver_rpms.matched | default(0) | int == 0
 
     - name: Garantir permissões adequadas para instalação
       ansible.builtin.file:
@@ -135,6 +147,24 @@
         chdir: "/opt/mqm/bin"
       changed_when: false
       failed_when: false
+
+    - name: Listar pacotes IBM MQ instalados (consulta dnf)
+      ansible.builtin.command: dnf list installed | grep -E '^MQSeries'
+      register: mq_rpms_installed
+      changed_when: false
+      failed_when: false
+
+    - name: Exibir pacotes IBM MQ detectados
+      ansible.builtin.debug:
+        msg: "{{ mq_rpms_installed.stdout_lines | default(['Nenhum pacote MQSeries instalado.']) }}"
+
+    - name: Instalar todos os RPMs do diretório (fallback)
+      ansible.builtin.shell: |
+        set -o pipefail
+        dnf -y install {{ mq_install_dir }}/MQServer/*.rpm --nogpgcheck
+      when: mq_rpms_installed.stdout is not defined or (mq_rpms_installed.stdout | trim) == ''
+      register: dnf_fallback
+      changed_when: true
 
     - name: Verificar existência do binário dspmqver
       ansible.builtin.stat:
