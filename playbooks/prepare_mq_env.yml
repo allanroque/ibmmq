@@ -1,6 +1,6 @@
 ---
 - name: Preparar ambiente base para IBM MQ (usuário, diretórios e pacotes)
-  hosts: mq04
+  hosts: all
   become: true
 
   vars:
