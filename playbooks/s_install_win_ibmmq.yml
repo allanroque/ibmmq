@@ -1,0 +1,164 @@
+---
+- name: Instalação/Atualização do IBM MQ 9.3 em Windows
+  hosts: windows
+  gather_facts: false
+
+  vars_prompt:
+    - name: install_type
+      prompt: "Tipo de Instalação (INST|FIX)"
+      private: no
+    - name: fix_version
+      prompt: "Qual a versão do FixPack (ex. 21)"
+      private: no
+
+  vars:
+    # Caminhos e nomes padrão (ajuste conforme seu ambiente)
+    repo_origin: '\\\\srvaeapawbr02.bs.br.bsch\\D$\\MQ\\Windows\\MQ9.3'
+    destination: "C:\\MQInstall"
+    inst_pack: "IBM_MQ_9.3_WINDOWS.zip"
+    inst_ini: "MQInstall93.ini"
+    inst_parm: "MQParms93.ini"
+    inst_dir: "D:\\IBM\\MQ"
+
+  tasks:
+    - name: Normalizar parâmetros e validar tipo de instalação
+      ansible.builtin.set_fact:
+        install_type_lc: "{{ install_type | lower | trim }}"
+        fix_version_lc: "{{ fix_version | lower | trim }}"
+
+    - name: Validar tipo de instalação (inst|fix)
+      ansible.builtin.fail:
+        msg: "Favor informar o tipo de instalação válido: INST | FIX"
+      when: install_type_lc not in ['inst', 'fix']
+
+    - name: Validar versão do FixPack informada
+      ansible.builtin.fail:
+        msg: "Favor informar qual a versão do FixPack a ser instalada"
+      when: fix_version_lc | length == 0
+
+    - name: Obter versão instalada do IBM MQ (se existir)
+      win_command: powershell.exe -NoProfile -NonInteractive -Command "dspmqver | findstr Version"
+      register: mqver_cmd
+      failed_when: false
+      changed_when: false
+
+    - name: Extrair versão instalada (se encontrada)
+      ansible.builtin.set_fact:
+        mq_version_instalada: "{{ (mqver_cmd.stdout.split(':') | last | default('') ) | trim }}"
+      when: mqver_cmd.rc == 0 and 'Version' in (mqver_cmd.stdout | default(''))
+
+    - name: Regras de continuidade conforme versão e tipo
+      ansible.builtin.fail:
+        msg: "MQ Server já está atualizado, instalação/atualização será cancelada"
+      when:
+        - mq_version_instalada is defined
+        - mq_version_instalada == ('9.3.0.' ~ fix_version_lc)
+
+    - name: Bloquear execução incorreta (inst vs fix)
+      ansible.builtin.fail:
+        msg: "MQ Server já está na versão atual 9.3.x. Execute apenas a atualização (FIX)."
+      when:
+        - mq_version_instalada is defined
+        - mq_version_instalada is match('^9\\.3\\..*')
+        - install_type_lc == 'inst'
+
+    - name: Aviso quando MQ não encontrado e tipo FIX
+      ansible.builtin.fail:
+        msg: "MQ Server não encontrado. Favor executar a instalação completa (INST)."
+      when:
+        - (mq_version_instalada is not defined) or (mq_version_instalada | length == 0)
+        - install_type_lc == 'fix'
+
+    - name: Garantir diretório de destino existe
+      win_file:
+        path: "{{ destination }}"
+        state: directory
+
+    - name: Definir nomes de arquivos do FixPack
+      ansible.builtin.set_fact:
+        fix_pack_zip: "9.3.0-IBM-MQ-Win64-FP00{{ fix_version_lc }}.zip"
+        fix_pack_dir: "9.3.0-IBM-MQ-Win64-FP00{{ fix_version_lc }}"
+        fix_pack_exe: "IBM-MQ-9.3.0-FP00{{ fix_version_lc }}.exe"
+        fix_pack_resp: "Fix_Install93_{{ fix_version_lc }}.resp"
+
+    - name: Copiar pacotes de INSTALAÇÃO quando install_type == inst
+      win_command: >-
+        powershell.exe -NoProfile -NonInteractive -Command
+        if (-not(Test-Path -Path '{{ destination }}\\{{ inst_pack }}')) { Copy-Item -Path '{{ repo_origin }}\\{{ inst_parm }}' -Destination '{{ destination }}' -Force; Copy-Item -Path '{{ repo_origin }}\\{{ inst_ini }}' -Destination '{{ destination }}' -Force; Copy-Item -Path '{{ repo_origin }}\\{{ inst_pack }}' -Destination '{{ destination }}' -Force }
+      when: install_type_lc == 'inst'
+
+    - name: Descompactar pacote de instalação (inst)
+      win_unzip:
+        src: "{{ destination }}\\{{ inst_pack }}"
+        dest: "{{ destination }}"
+        delete_archive: false
+      when: install_type_lc == 'inst'
+
+    - name: Validar arquivos de instalação (inst)
+      win_stat:
+        path: "{{ destination }}\\{{ item }}"
+      register: inst_files
+      loop:
+        - "{{ inst_parm }}"
+        - "{{ inst_ini }}"
+      when: install_type_lc == 'inst'
+
+    - name: Falhar se arquivos de instalação não encontrados (inst)
+      ansible.builtin.fail:
+        msg: "Installation Parm/Response file não encontrado. Instalação interrompida."
+      when: install_type_lc == 'inst' and (inst_files.results | selectattr('stat.exists','equalto', true) | list | length) < 2
+
+    - name: Copiar pacotes do FixPack
+      win_command: >-
+        powershell.exe -NoProfile -NonInteractive -Command
+        if (-not(Test-Path -Path '{{ destination }}\\{{ fix_pack_zip }}')) { Copy-Item -Path '{{ repo_origin }}\\fixpack\\{{ fix_pack_resp }}' -Destination '{{ destination }}' -Force; Copy-Item -Path '{{ repo_origin }}\\fixpack\\{{ fix_pack_zip }}' -Destination '{{ destination }}' -Force }
+
+    - name: Descompactar FixPack
+      win_unzip:
+        src: "{{ destination }}\\{{ fix_pack_zip }}"
+        dest: "{{ destination }}"
+        delete_archive: false
+
+    - name: Validar response file do FixPack
+      win_stat:
+        path: "{{ destination }}\\{{ fix_pack_resp }}"
+      register: fix_resp_stat
+
+    - name: Falhar se response file do FixPack não encontrado
+      ansible.builtin.fail:
+        msg: "FixPack ResponseFile não encontrado. Instalação interrompida."
+      when: not fix_resp_stat.stat.exists
+
+    - name: Instalar IBM MQ (MSI) quando install_type == inst
+      win_package:
+        path: "{{ destination }}\\IBM_MQ_9.3_WINDOWS\\MQServer\\MSI\\IBM MQ.msi"
+        arguments: "/qn /norestart TRANSFORMS=\"{{ destination }}\\IBM_MQ_9.3_WINDOWS\\MQServer\\MSI\\1033.mst\" USEINI=\"{{ destination }}\\{{ inst_ini }}\" AGREETOLICENSE=\"yes\""
+        state: present
+        log_path: "{{ destination }}\\IBM_MQ_9_3_Install.log"
+      when: install_type_lc == 'inst'
+
+    - name: Backup e stop dos QMGRs antes do FixPack
+      win_command: >-
+        powershell.exe -NoProfile -NonInteractive -Command
+        $destination='{{ destination }}'; $ErrorActionPreference='SilentlyContinue'; $qmgrs=& dspmq; if ($qmgrs -match 'QMNAME') { foreach($q in $qmgrs) { $aux=$q.split() | Where-Object {$_}; $status=$aux[1]; if ($status -eq 'STATUS(Running)') { $startIndex=$aux[0].IndexOf('(')+1; $length=$aux[0].IndexOf(')')-$startIndex; $qmgr=$aux[0].Substring($startIndex,$length); & dmpmqcfg -a -m $qmgr > (Join-Path $destination ("$qmgr.mqsc")); Start-Process endmqm -ArgumentList "-i $qmgr" -PassThru -Wait | Out-Null } } }
+
+    - name: Aplicar FixPack
+      win_command: >-
+        powershell.exe -NoProfile -NonInteractive -Command
+        $destination='{{ destination }}'; $fixdir=Join-Path $destination '{{ fix_pack_dir }}'; $fixexe=Join-Path $fixdir '{{ fix_pack_exe }}'; $fixresp=Join-Path $destination '{{ fix_pack_resp }}'; Start-Process -FilePath $fixexe -ArgumentList "-f `"$fixresp`"" -PassThru -Wait | Out-Null
+
+    - name: Coletar versão do IBM MQ após instalação
+      win_command: powershell.exe -NoProfile -NonInteractive -Command "dspmqver"
+      register: mqver_after
+      changed_when: false
+      failed_when: false
+
+    - name: Publicar facts de versão
+      ansible.builtin.set_fact:
+        ibmmq_version_after: "{{ mqver_after.stdout | default('n/d') }}"
+
+    - name: Mostrar versão final
+      ansible.builtin.debug:
+        msg: "Versão instalada/atualizada do IBM MQ: {{ ibmmq_version_after }}"
+
+
