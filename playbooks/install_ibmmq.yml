@@ -108,7 +108,6 @@
         disable_gpg_check: true
       loop: "{{ mq_rpms_required }}"
 
-
     - name: Verificar se dspmqver existe
       ansible.builtin.stat:
         path: "{{ mq_bin_path }}/dspmqver"

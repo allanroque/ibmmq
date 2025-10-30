@@ -23,7 +23,12 @@
         executable: /bin/bash
       become: true
 
-      
+    - name: Aceitar licença IBM MQ pós-instalação
+      ansible.builtin.command: "./mqlicense -accept"
+      args:
+        chdir: "/opt/mqm/bin"
+      changed_when: false
+      failed_when: false
 
     - name: Etapa 1 - Garantir que o Queue Manager existe
       ansible.builtin.command: "{{ mq_bin_path }}/crtmqm {{ mq_qm }}"
