@@ -8,6 +8,7 @@
     mq_group: mqm
     mq_base_dir: /opt/mqm
     mq_home: /home/mqm
+    mq_bin_path: /opt/mqm/bin
     mq_install_dir: "{{ mq_home }}/IBM_MQ"
     mq_pkg_local: "{{ mq_install_dir }}/9.3.0.0-IBM-MQTRIAL-LinuxX64.tar.gz"
     # QMGR básico
@@ -93,7 +94,7 @@
       failed_when: false
 
     - name: Verificar versão instalada
-      ansible.builtin.command: /opt/mqm/bin/dspmqver
+      ansible.builtin.command: "{{ mq_bin_path }}/dspmqver"
       register: mqver
       changed_when: false
 
@@ -102,14 +103,14 @@
         msg: "{{ mqver.stdout_lines }}"
 
     - name: Criar Queue Manager básico se não existir
-      ansible.builtin.command: "crtmqm -q -u SYSTEM.DEAD.LETTER.QUEUE {{ qmgr_name }}"
+      ansible.builtin.command: "{{ mq_bin_path }}/crtmqm -q -u SYSTEM.DEAD.LETTER.QUEUE {{ qmgr_name }}"
       args:
         creates: "/var/mqm/qmgrs/{{ qmgr_name }}"
       become: true
       become_user: "{{ mq_user }}"
 
     - name: Iniciar Queue Manager
-      ansible.builtin.command: "strmqm {{ qmgr_name }}"
+      ansible.builtin.command: "{{ mq_bin_path }}/strmqm {{ qmgr_name }}"
       become: true
       become_user: "{{ mq_user }}"
       register: strmqm_out
@@ -129,7 +130,7 @@
           REFRESH SECURITY TYPE(CONNAUTH)
 
     - name: Aplicar MQSC (objetos básicos)
-      ansible.builtin.shell: "/opt/mqm/bin/runmqsc {{ qmgr_name }} < /tmp/{{ qmgr_name }}_base.mqsc"
+      ansible.builtin.shell: "{{ mq_bin_path }}/runmqsc {{ qmgr_name }} < /tmp/{{ qmgr_name }}_base.mqsc"
       args:
         executable: /bin/bash
       become: true
