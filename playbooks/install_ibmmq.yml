@@ -108,6 +108,15 @@
         disable_gpg_check: true
       loop: "{{ mq_rpms_required }}"
 
+    - name: Garantir aceite de licença antes de criar QMGR
+      ansible.builtin.shell: |
+        if ! grep -q "AcceptLicense=Yes" /etc/opt/mqm/mqinst.ini 2>/dev/null; then
+          echo "AcceptLicense=Yes" >> /etc/opt/mqm/mqinst.ini
+        fi
+      args:
+        executable: /bin/bash
+      become: true
+
     - name: Verificar se dspmqver existe
       ansible.builtin.stat:
         path: "{{ mq_bin_path }}/dspmqver"
