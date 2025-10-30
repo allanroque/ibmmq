@@ -4,10 +4,11 @@
   become: true
   vars:
     mq_base_dir: "/tmp/mqInstall"
-    mq_fix_file: "9.3.0-IBM-MQ-LinuxX64-FP0031.tar.gz"
     repo_base_url: "http://54.196.155.119/repowmq/Linux"
     mq_user: "mqm"
     mq_bin_path: "/opt/mqm/bin"
+    mq_fix_filename: "9.3.0.0-IBM-MQTRIAL-LinuxX64.tar.gz"
+    mq_fix_url: "{{ repo_base_url }}/{{ mq_fix_filename }}"
   tasks:
     - name: Garantir diretório base existente
       ansible.builtin.file:
@@ -22,15 +23,19 @@
         state: directory
         mode: "0755"
 
+    - name: Definir nome do arquivo de fixpack
+      ansible.builtin.set_fact:
+        mq_fix_file_resolved: "{{ mq_fix_filename }}"
+
     - name: Baixar fixpack do IBM MQ
       ansible.builtin.get_url:
-        url: "{{ repo_base_url }}/MQ9.3/fixpack/{{ mq_fix_file }}"
-        dest: "{{ mq_base_dir }}/{{ mq_fix_file }}"
+        url: "{{ mq_fix_url }}"
+        dest: "{{ mq_base_dir }}/{{ mq_fix_file_resolved }}"
         mode: "0644"
 
     - name: Descompactar fixpack no diretório temporário
       ansible.builtin.unarchive:
-        src: "{{ mq_base_dir }}/{{ mq_fix_file }}"
+        src: "{{ mq_base_dir }}/{{ mq_fix_file_resolved }}"
         dest: "{{ mq_base_dir }}/mqfix"
         remote_src: true
 
@@ -59,7 +64,7 @@
 
     - name: Remover arquivo de fixpack baixado
       ansible.builtin.file:
-        path: "{{ mq_base_dir }}/{{ mq_fix_file }}"
+        path: "{{ mq_base_dir }}/{{ mq_fix_file_resolved }}"
         state: absent
 
     - name: Baixar script de criação do QMGR básico
