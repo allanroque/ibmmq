@@ -154,3 +154,92 @@
     - name: Mostrar versão instalada
       ansible.builtin.debug:
         msg: "{{ mqver.stdout_lines }}"
+
+    - name: Verificar existência do Queue Manager
+      ansible.builtin.command: "{{ mq_bin_path }}/dspmq -m {{ qmgr_name }}"
+      register: qmgr_check
+      changed_when: false
+      failed_when: false
+
+    - name: Criar Queue Manager se não existir (parâmetros completos)
+      ansible.builtin.command: "{{ mq_bin_path }}/crtmqm -u SYSTEM.DEAD.LETTER.QUEUE -lc -lf 4095 -lp 30 -ls 29 -q {{ qmgr_name }}"
+      when: qmgr_check.rc != 0
+      changed_when: true
+      become: true
+      become_user: "{{ mq_user }}"
+
+    - name: Garantir QM iniciado
+      ansible.builtin.command: "{{ mq_bin_path }}/strmqm {{ qmgr_name }}"
+      become: true
+      become_user: "{{ mq_user }}"
+      register: strmqm_final
+      changed_when: "'AMQ' in strmqm_final.stdout or 'AMQ' in strmqm_final.stderr"
+      failed_when: false
+
+    - name: Garantir stanza Channels no qm.ini
+      ansible.builtin.lineinfile:
+        path: "/var/mqm/qmgrs/{{ qmgr_name }}/qm.ini"
+        line: "Channels:"
+        state: present
+        create: true
+        owner: "{{ mq_user }}"
+        group: "{{ mq_group }}"
+        mode: '0644'
+      become: true
+
+    - name: Definir MaxActiveChannels no qm.ini
+      ansible.builtin.lineinfile:
+        path: "/var/mqm/qmgrs/{{ qmgr_name }}/qm.ini"
+        insertafter: "^Channels:$"
+        line: "  MaxActiveChannels=5000"
+      become: true
+
+    - name: Definir MaxChannels no qm.ini
+      ansible.builtin.lineinfile:
+        path: "/var/mqm/qmgrs/{{ qmgr_name }}/qm.ini"
+        insertafter: "^Channels:$"
+        line: "  MaxChannels=5000"
+      become: true
+
+    - name: Aplicar MQSC final (canais, listener, segurança)
+      ansible.builtin.shell: |
+        set -o pipefail
+        cat << 'EOF' | {{ mq_bin_path }}/runmqsc {{ qmgr_name }}
+        ALTER QMGR CCSID(1252) CHLAUTH(DISABLED)
+        DEFINE CHANNEL(CHANNEL1) CHLTYPE(SVRCONN) MCAUSER('mqm') REPLACE
+        DEFINE CHANNEL(MONITORACAO) CHLTYPE(SVRCONN) MCAUSER('mqm') REPLACE
+        DEFINE CHANNEL({{ mq_svrconn_channel }}) CHLTYPE(SVRCONN) TRPTYPE(TCP) MCAUSER('mqm') REPLACE
+        DEFINE LISTENER(LISTENER.TCP) TRPTYPE(TCP) CONTROL(QMGR) PORT({{ mq_listener_port }}) REPLACE
+        START LISTENER(LISTENER.TCP)
+        ALTER AUTHINFO(SYSTEM.DEFAULT.AUTHINFO.IDPWOS) AUTHTYPE(IDPWOS) CHCKCLNT(OPTIONAL)
+        SET CHLAUTH(*) TYPE(BLOCKUSER) USERLIST('MQADMIN') ACTION(REMOVE)
+        REFRESH SECURITY TYPE(CONNAUTH)
+        EOF
+      args:
+        executable: /bin/bash
+      become: true
+      become_user: "{{ mq_user }}"
+      register: mqsc_final
+      changed_when: "mqsc_final.rc == 0"
+      failed_when: false
+
+    - name: Exibir saída MQSC final
+      ansible.builtin.debug:
+        msg: "{{ mqsc_final.stdout_lines | default([]) }}"
+
+    - name: Adicionar usuário 'aeuser' ao grupo mqm (se existir)
+      ansible.builtin.user:
+        name: aeuser
+        groups: "{{ mq_group }}"
+        append: true
+      failed_when: false
+
+    - name: Reiniciar QM para consolidar alterações finais
+      ansible.builtin.shell: |
+        {{ mq_bin_path }}/endmqm -i {{ qmgr_name }} || true
+        {{ mq_bin_path }}/strmqm {{ qmgr_name }}
+      become: true
+      become_user: "{{ mq_user }}"
+      register: restart_final
+      changed_when: "'AMQ' in restart_final.stdout or 'AMQ' in restart_final.stderr"
+      failed_when: false
