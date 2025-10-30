@@ -95,6 +95,27 @@
         - "{{ mq_base_dir }}"
         - "{{ mq_install_dir }}"
 
+    - name: Verificar existência do diretório MQServer
+      ansible.builtin.stat:
+        path: "{{ mq_install_dir }}/MQServer"
+      register: mqserver_dir
+
+    - name: Verificar se há RPMs em MQServer (antes da extração)
+      ansible.builtin.find:
+        paths: "{{ mq_install_dir }}/MQServer"
+        patterns: "MQSeries*.rpm"
+        file_type: file
+      register: mqserver_rpms_before
+      when: mqserver_dir.stat.exists | default(false)
+
+    - name: Remover MQServer vazio/incompleto (sem RPMs) antes de extrair
+      ansible.builtin.file:
+        path: "{{ mq_install_dir }}/MQServer"
+        state: absent
+      when:
+        - mqserver_dir.stat.exists | default(false)
+        - (mqserver_rpms_before.matched | default(0) | int) == 0
+
     - name: Extrair pacote IBM MQ (caso ainda não extraído)
       ansible.builtin.unarchive:
         src: "{{ mq_pkg_local }}"
@@ -105,7 +126,7 @@
         extra_opts:
           - "--overwrite"
       args:
-        creates: "{{ mq_install_dir }}/MQServer"
+        creates: "{{ mq_install_dir }}/MQServer/MQSeriesRuntime-9.3.0-0.x86_64.rpm"
 
     - name: Validar extração — verificar RPMs presentes em MQServer
       ansible.builtin.find:
