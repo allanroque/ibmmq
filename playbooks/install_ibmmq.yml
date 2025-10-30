@@ -126,7 +126,6 @@
             src: "{{ mq_install_dir }}/download/{{ mq_fix_filename }}"
             dest: "{{ mq_install_dir }}"
             remote_src: true
-          notify: Reinstalar pacotes MQ
       when: not dspmqver_bin.stat.exists
 
     - name: Aceitar licença IBM MQ pós-instalação
@@ -145,10 +144,3 @@
     - name: Mostrar versão instalada
       ansible.builtin.debug:
         msg: "{{ mqver.stdout_lines }}"
-
-  handlers:
-    - name: Reinstalar pacotes MQ
-      ansible.builtin.shell: |
-        cd {{ mq_install_dir }}/MQServer
-        ./mqlicense.sh -accept
-        dnf -y install MQSeries*.rpm --nogpgcheck
