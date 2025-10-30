@@ -129,6 +129,13 @@
           notify: Reinstalar pacotes MQ
       when: not dspmqver_bin.stat.exists
 
+    - name: Aceitar licença IBM MQ pós-instalação
+      ansible.builtin.command: "./mqlicense -accept"
+      args:
+        chdir: "/opt/mqm/bin"
+      changed_when: false
+      failed_when: false
+
     - name: Validar instalação
       ansible.builtin.command: "{{ mq_bin_path }}/dspmqver"
       register: mqver

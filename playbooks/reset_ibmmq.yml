@@ -45,6 +45,19 @@
         state: absent
       ignore_errors: true
 
+    - name: Remover pacotes IBM MQ (versões específicas)
+      ansible.builtin.dnf:
+        name:
+          - MQSeriesRuntime-9.3.0-0.x86_64
+          - MQSeriesGSKit-9.3.0-0.x86_64
+          - MQSeriesServer-9.3.0-0.x86_64
+          - MQSeriesClient-9.3.0-0.x86_64
+          - MQSeriesSamples-9.3.0-0.x86_64
+          - MQSeriesMan-9.3.0-0.x86_64
+          - MQSeriesSDK-9.3.0-0.x86_64
+        state: absent
+      ignore_errors: true
+
     - name: Remover diretórios e arquivos do MQ
       ansible.builtin.file:
         path: "{{ item }}"
