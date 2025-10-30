@@ -14,6 +14,17 @@
 
   tasks:
 
+    - name: Garantir aceite de licença antes de criar QMGR
+      ansible.builtin.shell: |
+        if ! grep -q "AcceptLicense=Yes" /etc/opt/mqm/mqinst.ini 2>/dev/null; then
+          echo "AcceptLicense=Yes" >> /etc/opt/mqm/mqinst.ini
+        fi
+      args:
+        executable: /bin/bash
+      become: true
+
+      
+
     - name: Etapa 1 - Garantir que o Queue Manager existe
       ansible.builtin.command: "{{ mq_bin_path }}/crtmqm {{ mq_qm }}"
       become_user: "{{ mq_user }}"
