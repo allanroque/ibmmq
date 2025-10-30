@@ -1,5 +1,5 @@
 ---
-- name: Instalar IBM MQ 9.3 (instalação padrão IBM - versão corrigida e validada)
+- name: Instalar IBM MQ 9.3 (robusto e autoverificador)
   hosts: all
   become: true
   gather_facts: true
@@ -29,11 +29,11 @@
 
   tasks:
 
-    - name: Validar conectividade SSH
+    - name: Garantir conectividade
       ansible.builtin.wait_for_connection:
         timeout: 10
 
-    - name: Garantir dependências básicas instaladas
+    - name: Dependências básicas
       ansible.builtin.dnf:
         name:
           - gcc
@@ -45,21 +45,16 @@
           - acl
         state: present
 
-    - name: Criar grupo mqm
-      ansible.builtin.group:
-        name: "{{ mq_group }}"
-        state: present
-
-    - name: Criar usuário mqm
+    - name: Criar grupo e usuário MQ
       ansible.builtin.user:
         name: "{{ mq_user }}"
         group: "{{ mq_group }}"
-        home: "{{ mq_home }}"
         create_home: true
+        home: "{{ mq_home }}"
         shell: /bin/bash
         state: present
 
-    - name: Criar diretório de download do instalador
+    - name: Criar diretório de trabalho
       ansible.builtin.file:
         path: "{{ mq_install_dir }}/download"
         state: directory
@@ -67,13 +62,27 @@
         group: "{{ mq_group }}"
         mode: '0755'
 
-    - name: Baixar instalador do IBM MQ
+    - name: Baixar instalador MQ
       ansible.builtin.get_url:
         url: "{{ repo_base_url }}/{{ mq_fix_filename }}"
         dest: "{{ mq_install_dir }}/download/{{ mq_fix_filename }}"
         mode: '0644'
 
-    - name: Extrair pacote IBM MQ
+    - name: Verificar se MQServer contém RPMs válidos
+      ansible.builtin.find:
+        paths: "{{ mq_install_dir }}/MQServer"
+        patterns: "MQSeries*.rpm"
+        file_type: file
+      register: mq_rpms_found
+      ignore_errors: true
+
+    - name: Remover MQServer vazio/corrompido
+      ansible.builtin.file:
+        path: "{{ mq_install_dir }}/MQServer"
+        state: absent
+      when: mq_rpms_found.matched | default(0) | int == 0
+
+    - name: Extrair instalador IBM MQ
       ansible.builtin.unarchive:
         src: "{{ mq_install_dir }}/download/{{ mq_fix_filename }}"
         dest: "{{ mq_install_dir }}"
@@ -81,115 +90,58 @@
         owner: "{{ mq_user }}"
         group: "{{ mq_group }}"
         extra_opts: ["--overwrite"]
-      args:
-        creates: "{{ mq_install_dir }}/MQServer/MQSeriesRuntime-9.3.0-0.x86_64.rpm"
 
-    - name: Aceitar licença IBM MQ antes da instalação (root)
+    - name: Aceitar licença antes da instalação
       ansible.builtin.command: ./mqlicense.sh -accept
       args:
         chdir: "{{ mq_install_dir }}/MQServer"
-      become: true
       become_user: root
       register: license_accept
-      changed_when: "'Agreement accepted' in license_accept.stdout"
+      changed_when: "'Agreement' in license_accept.stdout or 'accept' in license_accept.stdout"
       failed_when: false
 
-    - name: Instalar pacotes essenciais do IBM MQ (com validação)
+    - name: Instalar pacotes do IBM MQ
       ansible.builtin.shell: |
         dnf -y install {{ mq_install_dir }}/MQServer/{{ item }} --nogpgcheck
       loop: "{{ mq_rpms_required }}"
       register: mq_install_result
       failed_when: mq_install_result.rc != 0
-      changed_when: true
 
-    - name: Confirmar existência do binário dspmqver
+    - name: Verificar se dspmqver existe
       ansible.builtin.stat:
         path: "{{ mq_bin_path }}/dspmqver"
       register: dspmqver_bin
 
-    - name: Falhar se dspmqver não foi encontrado
-      ansible.builtin.fail:
-        msg: |
-          dspmqver não encontrado em {{ mq_bin_path }}.
-          A instalação dos pacotes IBM MQ pode não ter sido aplicada.
-          Verifique os RPMs em {{ mq_install_dir }}/MQServer/ e reinstale se necessário.
-      when: not (dspmqver_bin.stat.exists | default(false))
+    - name: Forçar reextração e reinstalação se dspmqver ausente
+      block:
+        - name: Limpar MQServer e /opt/mqm incompletos
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - "{{ mq_install_dir }}/MQServer"
+            - "{{ mq_base_dir }}"
+        - name: Reextrair pacote e reinstalar RPMs
+          ansible.builtin.unarchive:
+            src: "{{ mq_install_dir }}/download/{{ mq_fix_filename }}"
+            dest: "{{ mq_install_dir }}"
+            remote_src: true
+          notify: Reinstalar pacotes MQ
+      when: not dspmqver_bin.stat.exists
 
-    - name: Verificar versão instalada do IBM MQ
+    - name: Validar instalação
       ansible.builtin.command: "{{ mq_bin_path }}/dspmqver"
       register: mqver
       changed_when: false
+      failed_when: mqver.rc != 0
 
-    - name: Exibir versão instalada
+    - name: Mostrar versão instalada
       ansible.builtin.debug:
         msg: "{{ mqver.stdout_lines }}"
 
-    - name: Validar registro da instalação no sistema
-      ansible.builtin.shell: grep 'InstallationName' /etc/opt/mqm/mqinst.ini || echo "MQ não registrado"
-      register: mq_reg_check
-      changed_when: false
-
-    - name: Exibir registro do MQ
-      ansible.builtin.debug:
-        msg: "{{ mq_reg_check.stdout_lines }}"
-
-    - name: Criar Queue Manager básico se não existir
-      ansible.builtin.command: "{{ mq_bin_path }}/crtmqm -u SYSTEM.DEAD.LETTER.QUEUE -lc -lf 4095 -lp 30 -ls 29 -q {{ qmgr_name }}"
-      args:
-        creates: "/var/mqm/qmgrs/{{ qmgr_name }}"
-      become: true
-      become_user: "{{ mq_user }}"
-
-    - name: Iniciar Queue Manager
-      ansible.builtin.command: "{{ mq_bin_path }}/strmqm {{ qmgr_name }}"
-      become: true
-      become_user: "{{ mq_user }}"
-      register: strmqm_out
-      changed_when: "'AMQ' in strmqm_out.stdout or 'AMQ' in strmqm_out.stderr"
-      failed_when: false
-
-    - name: Criar MQSC de configuração base
-      ansible.builtin.copy:
-        dest: "/tmp/{{ qmgr_name }}_base.mqsc"
-        mode: '0644'
-        content: |
-          * Configuração base para {{ qmgr_name }}
-          ALTER QMGR CCSID(1252) CHLAUTH(DISABLED)
-          DEFINE CHANNEL({{ mq_svrconn_channel }}) CHLTYPE(SVRCONN) TRPTYPE(TCP) MCAUSER('mqm') REPLACE
-          DEFINE LISTENER(LISTENER.TCP) TRPTYPE(TCP) CONTROL(QMGR) PORT({{ mq_listener_port }}) REPLACE
-          START LISTENER(LISTENER.TCP)
-          ALTER AUTHINFO(SYSTEM.DEFAULT.AUTHINFO.IDPWOS) AUTHTYPE(IDPWOS) CHCKCLNT(OPTIONAL)
-          REFRESH SECURITY TYPE(CONNAUTH)
-
-    - name: Aplicar MQSC
-      ansible.builtin.shell: "{{ mq_bin_path }}/runmqsc {{ qmgr_name }} < /tmp/{{ qmgr_name }}_base.mqsc"
-      args:
-        executable: /bin/bash
-      become: true
-      become_user: "{{ mq_user }}"
-      register: mqsc_apply
-      changed_when: "mqsc_apply.rc == 0"
-      failed_when: false
-
-    - name: Exibir saída MQSC
-      ansible.builtin.debug:
-        msg: "{{ mqsc_apply.stdout_lines }}"
-
-    - name: Reiniciar Queue Manager
+  handlers:
+    - name: Reinstalar pacotes MQ
       ansible.builtin.shell: |
-        {{ mq_bin_path }}/endmqm -i {{ qmgr_name }} || true
-        {{ mq_bin_path }}/strmqm {{ qmgr_name }}
-      become: true
-      become_user: "{{ mq_user }}"
-      register: restart_qm
-      changed_when: "'AMQ' in restart_qm.stdout or 'AMQ' in restart_qm.stderr"
-      failed_when: false
-
-    - name: Adicionar usuários extras ao grupo mqm
-      ansible.builtin.user:
-        name: "{{ item }}"
-        groups: "{{ mq_group }}"
-        append: true
-      loop: "{{ mq_extra_users }}"
-      when: mq_extra_users | length > 0
-      become: true
+        cd {{ mq_install_dir }}/MQServer
+        ./mqlicense.sh -accept
+        dnf -y install MQSeries*.rpm --nogpgcheck
