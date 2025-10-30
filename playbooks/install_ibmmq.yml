@@ -141,4 +141,4 @@
 
     - name: Mostrar saída da aplicação MQSC
       ansible.builtin.debug:
-        var: mqsc_apply.stdout
+        msg: "{{ mqsc_apply.stdout_lines }}"
