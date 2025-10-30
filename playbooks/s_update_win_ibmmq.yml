@@ -1,0 +1,100 @@
+---
+- name: Atualização do IBM MQ 9.3 em Windows (FixPack)
+  hosts: windows
+  gather_facts: false
+
+  vars_prompt:
+    - name: fix_version
+      prompt: "Qual a versão do FixPack (ex. 21)"
+      private: no
+
+  vars:
+    destination: "C:\\MQInstall"
+    repo_origin: 'http://54.196.155.119/repowmq/Windows'
+
+  tasks:
+    - name: Normalizar parâmetro de versão
+      ansible.builtin.set_fact:
+        fix_version_lc: "{{ fix_version | lower | trim }}"
+
+    - name: Validar versão do FixPack informada
+      ansible.builtin.fail:
+        msg: "Favor informar qual a versão do FixPack a ser instalada"
+      when: fix_version_lc | length == 0
+
+    - name: Obter versão instalada do IBM MQ (se existir)
+      ansible.windows.win_shell: powershell.exe -NoProfile -NonInteractive -Command "dspmqver | findstr Version"
+      register: mqver_cmd
+      failed_when: false
+      changed_when: false
+
+    - name: Extrair versão instalada (se encontrada)
+      ansible.builtin.set_fact:
+        mq_version_instalada: "{{ (mqver_cmd.stdout.split(':') | last | default('') ) | trim }}"
+      when: mqver_cmd.rc == 0 and 'Version' in (mqver_cmd.stdout | default(''))
+
+    - name: Bloquear quando já está na mesma versão do FixPack
+      ansible.builtin.fail:
+        msg: "MQ Server já está atualizado, atualização será cancelada"
+      when:
+        - mq_version_instalada is defined
+        - mq_version_instalada == ('9.3.0.' ~ fix_version_lc)
+
+    - name: Garantir diretório de trabalho existe
+      ansible.windows.win_file:
+        path: "{{ destination }}"
+        state: directory
+
+    - name: Definir nomes de arquivos do FixPack
+      ansible.builtin.set_fact:
+        fix_pack_zip: "9.3.0-IBM-MQ-Win64-FP00{{ fix_version_lc }}.zip"
+        fix_pack_dir: "9.3.0-IBM-MQ-Win64-FP00{{ fix_version_lc }}"
+        fix_pack_exe: "IBM-MQ-9.3.0-FP00{{ fix_version_lc }}.exe"
+        fix_pack_resp: "Fix_Install93_{{ fix_version_lc }}.resp"
+
+    - name: Baixar pacotes do FixPack a partir do repositório HTTP
+      ansible.windows.win_get_url:
+        url: "{{ item.url }}"
+        dest: "{{ destination }}\\{{ item.dest }}"
+        force: false
+      loop:
+        - { url: "{{ repo_origin }}/MQ9.3/fixpack/{{ fix_pack_resp }}", dest: "{{ fix_pack_resp }}" }
+        - { url: "{{ repo_origin }}/MQ9.3/fixpack/{{ fix_pack_zip }}",  dest: "{{ fix_pack_zip }}" }
+
+    - name: Descompactar FixPack
+      community.windows.win_unzip:
+        src: "{{ destination }}\\{{ fix_pack_zip }}"
+        dest: "{{ destination }}"
+        delete_archive: false
+
+    - name: Validar response file do FixPack
+      ansible.windows.win_stat:
+        path: "{{ destination }}\\{{ fix_pack_resp }}"
+      register: fix_resp_stat
+
+    - name: Falhar se response file do FixPack não encontrado
+      ansible.builtin.fail:
+        msg: "FixPack ResponseFile não encontrado. Atualização interrompida."
+      when: not fix_resp_stat.stat.exists
+
+    - name: Backup e stop dos QMGRs antes do FixPack
+      ansible.windows.win_shell: >-
+        powershell.exe -NoProfile -NonInteractive -Command
+        $destination='{{ destination }}'; $ErrorActionPreference='SilentlyContinue'; $qmgrs=& dspmq; if ($qmgrs -match 'QMNAME') { foreach($q in $qmgrs) { $aux=$q.split() | Where-Object {$_}; $status=$aux[1]; if ($status -eq 'STATUS(Running)') { $startIndex=$aux[0].IndexOf('(')+1; $length=$aux[0].IndexOf(')')-$startIndex; $qmgr=$aux[0].Substring($startIndex,$length); & dmpmqcfg -a -m $qmgr > (Join-Path $destination ("$qmgr.mqsc")); Start-Process endmqm -ArgumentList "-i $qmgr" -PassThru -Wait | Out-Null } } }
+
+    - name: Aplicar FixPack
+      ansible.windows.win_shell: >-
+        powershell.exe -NoProfile -NonInteractive -Command
+        $destination='{{ destination }}'; $fixdir=Join-Path $destination '{{ fix_pack_dir }}'; $fixexe=Join-Path $fixdir '{{ fix_pack_exe }}'; $fixresp=Join-Path $destination '{{ fix_pack_resp }}'; Start-Process -FilePath $fixexe -ArgumentList "-f `"$fixresp`"" -PassThru -Wait | Out-Null
+
+    - name: Coletar versão do IBM MQ após atualização
+      ansible.windows.win_shell: powershell.exe -NoProfile -NonInteractive -Command "dspmqver"
+      register: mqver_after
+      changed_when: false
+      failed_when: false
+
+    - name: Mostrar versão final
+      ansible.builtin.debug:
+        msg: "Versão do IBM MQ após atualização: {{ mqver_after.stdout | default('n/d') }}"
+
+
