@@ -10,7 +10,11 @@
     mq_home: /home/mqm
     mq_bin_path: /opt/mqm/bin
     mq_install_dir: "{{ mq_home }}/IBM_MQ"
-    mq_pkg_local: "{{ mq_install_dir }}/9.3.0.0-IBM-MQTRIAL-LinuxX64.tar.gz"
+    # Fonte de download (alinhado ao s_install_mq.yml)
+    repo_base_url: "http://54.196.155.119/repowmq/Linux"
+    mq_fix_filename: "9.3.0.0-IBM-MQTRIAL-LinuxX64.tar.gz"
+    mq_fix_url: "{{ repo_base_url }}/{{ mq_fix_filename }}"
+    mq_pkg_local: "{{ mq_install_dir }}/download/{{ mq_fix_filename }}"
     # QMGR básico
     qmgr_name: "QM1"
     mq_listener_port: 1414
@@ -42,6 +46,42 @@
           - glibc
           - acl
         state: present
+
+    - name: Criar grupo mqm
+      ansible.builtin.group:
+        name: "{{ mq_group }}"
+        state: present
+
+    - name: Criar usuário mqm
+      ansible.builtin.user:
+        name: "{{ mq_user }}"
+        group: "{{ mq_group }}"
+        home: "{{ mq_home }}"
+        create_home: true
+        shell: /bin/bash
+        state: present
+
+    - name: Criar diretório de download do instalador
+      ansible.builtin.file:
+        path: "{{ mq_install_dir }}/download"
+        state: directory
+        owner: "{{ mq_user }}"
+        group: "{{ mq_group }}"
+        mode: '0755'
+
+    - name: Definir nome do arquivo do instalador
+      ansible.builtin.set_fact:
+        mq_fix_file_resolved: "{{ mq_fix_filename }}"
+
+    - name: Baixar instalador do IBM MQ
+      ansible.builtin.get_url:
+        url: "{{ mq_fix_url }}"
+        dest: "{{ mq_install_dir }}/download/{{ mq_fix_file_resolved }}"
+        mode: '0644'
+
+    - name: Ajustar caminho do pacote local para unarchive
+      ansible.builtin.set_fact:
+        mq_pkg_local: "{{ mq_install_dir }}/download/{{ mq_fix_file_resolved }}"
 
     - name: Criar diretórios base (se ainda não existirem)
       ansible.builtin.file:
