@@ -19,6 +19,7 @@
     qmgr_name: "QM1"
     mq_listener_port: 1414
     mq_svrconn_channel: "SVRCONN.APP"
+    mq_extra_users: []
 
     mq_rpms_required:
       - MQSeriesRuntime-9.3.0-0.x86_64.rpm
@@ -143,11 +144,36 @@
         msg: "{{ mqver.stdout_lines }}"
 
     - name: Criar Queue Manager básico se não existir
-      ansible.builtin.command: "{{ mq_bin_path }}/crtmqm -q -u SYSTEM.DEAD.LETTER.QUEUE {{ qmgr_name }}"
+      ansible.builtin.command: "{{ mq_bin_path }}/crtmqm -u SYSTEM.DEAD.LETTER.QUEUE -lc -lf 4095 -lp 30 -ls 29 -q {{ qmgr_name }}"
       args:
         creates: "/var/mqm/qmgrs/{{ qmgr_name }}"
       become: true
       become_user: "{{ mq_user }}"
+
+    - name: Garantir stanza Channels no qm.ini
+      ansible.builtin.lineinfile:
+        path: "/var/mqm/qmgrs/{{ qmgr_name }}/qm.ini"
+        line: "Channels:"
+        state: present
+        create: true
+        owner: "{{ mq_user }}"
+        group: "{{ mq_group }}"
+        mode: '0644'
+      become: true
+
+    - name: Definir MaxActiveChannels no qm.ini
+      ansible.builtin.lineinfile:
+        path: "/var/mqm/qmgrs/{{ qmgr_name }}/qm.ini"
+        insertafter: "^Channels:$"
+        line: "  MaxActiveChannels=5000"
+      become: true
+
+    - name: Definir MaxChannels no qm.ini
+      ansible.builtin.lineinfile:
+        path: "/var/mqm/qmgrs/{{ qmgr_name }}/qm.ini"
+        insertafter: "^Channels:$"
+        line: "  MaxChannels=5000"
+      become: true
 
     - name: Iniciar Queue Manager
       ansible.builtin.command: "{{ mq_bin_path }}/strmqm {{ qmgr_name }}"
@@ -163,10 +189,14 @@
         mode: '0644'
         content: |
           * Base definitions for {{ qmgr_name }}
-          ALTER QMGR CHLAUTH(DISABLED)
+          ALTER QMGR CCSID(1252) CHLAUTH(DISABLED)
           DEFINE CHANNEL({{ mq_svrconn_channel }}) CHLTYPE(SVRCONN) TRPTYPE(TCP) REPLACE
+          DEFINE CHANNEL(CHANNEL1) CHLTYPE(SVRCONN) MCAUSER('mqm') REPLACE
+          DEFINE CHANNEL(MONITORACAO) CHLTYPE(SVRCONN) MCAUSER('mqm') REPLACE
           DEFINE LISTENER(LISTENER.TCP) TRPTYPE(TCP) CONTROL(QMGR) PORT({{ mq_listener_port }}) REPLACE
           START LISTENER(LISTENER.TCP)
+          ALTER AUTHINFO(SYSTEM.DEFAULT.AUTHINFO.IDPWOS) AUTHTYPE(IDPWOS) CHCKCLNT(OPTIONAL)
+          SET CHLAUTH(*) TYPE(BLOCKUSER) USERLIST('MQADMIN') ACTION(REMOVE)
           REFRESH SECURITY TYPE(CONNAUTH)
 
     - name: Aplicar MQSC (objetos básicos)
@@ -182,3 +212,22 @@
     - name: Mostrar saída da aplicação MQSC
       ansible.builtin.debug:
         msg: "{{ mqsc_apply.stdout_lines }}"
+
+    - name: Reiniciar Queue Manager para aplicar configurações de ini/MQSC
+      ansible.builtin.shell: |
+        {{ mq_bin_path }}/endmqm -i {{ qmgr_name }} || true
+        {{ mq_bin_path }}/strmqm {{ qmgr_name }}
+      become: true
+      become_user: "{{ mq_user }}"
+      register: restart_qm
+      changed_when: "'AMQ' in restart_qm.stdout or 'AMQ' in restart_qm.stderr"
+      failed_when: false
+
+    - name: Adicionar usuários extras ao grupo mqm (opcional)
+      ansible.builtin.user:
+        name: "{{ item }}"
+        groups: "{{ mq_group }}"
+        append: true
+      loop: "{{ mq_extra_users }}"
+      when: mq_extra_users | length > 0
+      become: true
