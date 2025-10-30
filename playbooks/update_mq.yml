@@ -144,7 +144,7 @@
 
     - name: Extrair pacote IBM MQ 9.4 (somente se versão atual for 9.3)
       ansible.builtin.unarchive:
-        src: "{{ mq_install_dir }}/9.4.0.10-IBM-MQTRIAL-LinuxX64.tar.gz"
+        src: "{{ mq_install_dir }}/ibmmq_9.4.tar.gz"
         dest: "{{ mq_install_dir }}"
         remote_src: true
         owner: "{{ mq_user }}"
