@@ -1,16 +1,18 @@
 ---
 - name: Executa um comando dinâmico
   hosts: "{{ managed_node | default('none') }}"
-  gather_facts: no
-  environment:
-    PATH: "/opt/mqm/bin:{{ ansible_env.PATH }}"
+  gather_facts: true
   vars:
     my_command: "uptime"   # valor padrão, pode ser sobrescrito em linha de comando
+    mq_bin_path: /opt/mqm/bin
   tasks:
-    - name: Rodar comando definido em variável
-      ansible.builtin.command: "{{ my_command }}"
+    - name: Rodar comando definido em variável (suporta comandos MQ e pipes)
+      ansible.builtin.shell: "{{ my_command }}"
+      environment:
+        PATH: "{{ mq_bin_path }}:{{ ansible_env.PATH }}"
       register: output
+      changed_when: false
 
     - name: Mostrar saída
       ansible.builtin.debug:
-        var: output.stdout
+        msg: "{{ output.stdout_lines | default(output.stdout | default('Sem saída')) }}"
