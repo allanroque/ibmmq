@@ -1,6 +1,6 @@
 ---
 - name: Reset completo do ambiente IBM MQ (para simulação do zero)
-  hosts: all
+  hosts: "{{ managed_node | default('none') }}"
   become: true
   vars:
     mq_user: mqm

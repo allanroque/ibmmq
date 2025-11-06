@@ -1,6 +1,6 @@
 ---
 - name: Executa um comando dinâmico
-  hosts: mq_lab_redhat
+  hosts: "{{ managed_node | default('none') }}"
   gather_facts: no
   environment:
     PATH: "/opt/mqm/bin:{{ ansible_env.PATH }}"

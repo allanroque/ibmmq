@@ -1,6 +1,6 @@
 ---
 - name: Instalar IBM MQ 9.3 (robusto e autoverificador)
-  hosts: all
+  hosts: "{{ managed_node | default('none') }}"
   become: true
   gather_facts: true
 

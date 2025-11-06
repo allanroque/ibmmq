@@ -1,6 +1,6 @@
 ---
 - name: Coleta de informações do ambiente IBM MQ
-  hosts: all
+  hosts: "{{ managed_node | default('none') }}"
   become: true
 
   vars:
@@ -202,5 +202,4 @@
       ansible.builtin.debug:
         msg: |
           ================================
-          FIM DO RELATÓRIO
-          ================================
+          FIM DO RELATÓRIO`

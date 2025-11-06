@@ -1,6 +1,6 @@
 ---
 - name: "Backup Completo do IBM MQ - Etapa 4"
-  hosts: mq_servers
+  hosts: "{{ managed_node | default('none') }}"
   become: yes
   vars_files:
     - vars/vars.yml

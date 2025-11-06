@@ -1,6 +1,6 @@
 ---
 - name: Simulação prática do IBM MQ - Criação de filas e teste de mensagens
-  hosts: all
+  hosts: "{{ managed_node | default('none') }}"
   become: true
 
   vars:

@@ -1,6 +1,6 @@
 ---
 - name: Atualização controlada do IBM MQ para versão 9.4
-  hosts: all
+  hosts: "{{ managed_node | default('none') }}"
   become: true
 
   vars:

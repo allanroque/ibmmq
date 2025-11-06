@@ -1,6 +1,6 @@
 ---
 - name: Validar versao
-  hosts: all
+  hosts: "{{ managed_node | default('none') }}"
   gather_facts: yes
   tasks:
 
