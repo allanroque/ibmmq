@@ -42,41 +42,6 @@ Coleção de playbooks Ansible para gerenciamento completo do IBM MQ em ambiente
 - **`mq_simulate_linux.yml`** - Simulação de operações MQ
 - **`mq_facts_linux.yml`** / **`mq_facts_v2_linux.yml`** - Coleta de facts do sistema
 
-## 🚀 Uso Rápido
-
-### Instalação Inicial
-
-```bash
-# Instalar IBM MQ 9.3 do zero
-ansible-playbook -i inventory playbooks/mq_install_linux.yml
-
-# Preparar apenas o ambiente (usuário/diretórios)
-ansible-playbook -i inventory playbooks/mq_prepare_env_linux.yml
-```
-
-### Atualização
-
-```bash
-# Atualizar IBM MQ 9.3 → 9.4
-ansible-playbook -i inventory playbooks/mq_update_linux.yml
-```
-
-### Backup e Coleta
-
-```bash
-# Backup completo
-ansible-playbook -i inventory playbooks/mq_backup_linux.yml
-
-# Coletar informações do ambiente
-ansible-playbook -i inventory playbooks/mq_collect_linux.yml
-```
-
-### Reset (Cuidado!)
-
-```bash
-# Remover completamente o IBM MQ
-ansible-playbook -i inventory playbooks/mq_reset_linux.yml
-```
 
 ## ⚙️ Configurações
 
