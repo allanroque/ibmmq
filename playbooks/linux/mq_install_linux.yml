@@ -114,7 +114,7 @@
       register: dspmqver_bin
 
     - name: Forçar reextração e reinstalação se dspmqver ausente
-      when: not dspmqver_bin.stat.exists
+      when: not (dspmqver_bin.stat.exists | default(false))
       block:
         - name: Limpar MQServer e /opt/mqm incompletos
           ansible.builtin.file:
@@ -123,11 +123,37 @@
           loop:
             - "{{ mq_install_dir }}/MQServer"
             - "{{ mq_base_dir }}"
-        - name: Reextrair pacote e reinstalar RPMs
+        
+        - name: Reextrair pacote
           ansible.builtin.unarchive:
             src: "{{ mq_install_dir }}/download/{{ mq_fix_filename }}"
             dest: "{{ mq_install_dir }}"
             remote_src: true
+            owner: "{{ mq_user }}"
+            group: "{{ mq_group }}"
+            extra_opts: ["--overwrite"]
+        
+        - name: Aceitar licença antes da reinstalação
+          ansible.builtin.command: ./mqlicense.sh -accept
+          args:
+            chdir: "{{ mq_install_dir }}/MQServer"
+          become: true
+          become_user: root
+          register: license_accept_retry
+          changed_when: "'Agreement' in license_accept_retry.stdout or 'accept' in license_accept_retry.stdout"
+          failed_when: false
+        
+        - name: Reinstalar pacotes essenciais do IBM MQ
+          ansible.builtin.dnf:
+            name: "{{ mq_install_dir }}/MQServer/{{ item }}"
+            state: present
+            disable_gpg_check: true
+          loop: "{{ mq_rpms_required }}"
+
+    - name: Verificar se dspmqver existe (verificação final)
+      ansible.builtin.stat:
+        path: "{{ mq_bin_path }}/dspmqver"
+      register: dspmqver_bin_final
 
     - name: Aceitar licença IBM MQ pós-instalação
       ansible.builtin.command: "./mqlicense -accept"
@@ -135,6 +161,7 @@
         chdir: "/opt/mqm/bin"
       changed_when: false
       failed_when: false
+      when: dspmqver_bin_final.stat.exists | default(false)
 
     - name: Garantir aceite de licença antes de criar QMGR
       ansible.builtin.lineinfile:
@@ -146,6 +173,14 @@
         group: root
         mode: '0644'
       become: true
+
+    - name: Falhar se dspmqver ainda não existe após instalação/reinstalação
+      ansible.builtin.fail:
+        msg: |
+          dspmqver não encontrado em {{ mq_bin_path }} após instalação.
+          A instalação dos pacotes IBM MQ pode ter falhado.
+          Verifique os logs e os RPMs em {{ mq_install_dir }}/MQServer/
+      when: not (dspmqver_bin_final.stat.exists | default(false))
 
     - name: Validar instalação
       ansible.builtin.command: "{{ mq_bin_path }}/dspmqver"
